@@ -1,0 +1,15 @@
+* {
+    box-sizing: border-box;
+}
+
+body {
+    margin: 0;
+    padding: 0;
+    color: #333;
+    font-size: 14px;
+}
+/* 选择页面的 `<body>` 元素，应用以下样式,用于统一页面基础样式，让内容显示更规范、简洁 */
+
+a {
+    text-decoration: none;
+}
