@@ -211,6 +211,116 @@
 
         </div>
       </el-card>
+
+      <!-- 方式二：单个卫星设置 -->
+      <el-card shadow="never" class="setting-card sat-single-card">
+        <template #header>
+          <div class="card-header-inner">
+            <el-icon :size="16" color="#67C23A"><Edit /></el-icon>
+            <span class="card-title">单个卫星参数设置</span>
+          </div>
+        </template>
+
+        <div class="sat-single-container">
+          <!-- 卫星选择 -->
+          <div class="sat-select-row">
+            <label class="form-label">选择卫星</label>
+            <div class="sat-select-wrapper">
+              <el-select 
+                v-model="selectedSatId" 
+                placeholder="请选择要设置的卫星"
+                @change="onSatelliteChange"
+                filterable
+                style="width: 100%"
+              >
+                <el-option 
+                  v-for="sat in satelliteList" 
+                  :key="sat.id" 
+                  :label="`${sat.name} (${sat.orbit} - ${sat.loadType})`" 
+                  :value="sat.id"
+                />
+              </el-select>
+              <el-button :icon="Refresh" @click="loadSatelliteList" :loading="loadingSatList" circle size="small" title="刷新列表"></el-button>
+            </div>
+          </div>
+
+          <!-- 参数表单 -->
+          <el-collapse-transition>
+            <div v-show="selectedSatId" class="satellite-form-wrapper">
+              <el-divider content-position="left">基础参数</el-divider>
+              
+              <div class="param-grid">
+                <div class="param-item">
+                  <label>存储容量 (GB)</label>
+                  <el-input-number v-model="satelliteForm.storage" :min="1" :max="10000" controls-position="right" />
+                </div>
+                <div class="param-item">
+                  <label>电池容量 (Wh)</label>
+                  <el-input-number v-model="satelliteForm.battery" :min="1" :max="20000" controls-position="right" />
+                </div>
+                <div class="param-item">
+                  <label>下行速率 (GB/s)</label>
+                  <el-input-number v-model="satelliteForm.downlink_rate" :min="0.1" :max="100" :step="0.1" controls-position="right" />
+                </div>
+              </div>
+
+              <el-divider content-position="left">功率参数</el-divider>
+              
+              <div class="param-grid">
+                <div class="param-item">
+                  <label>空闲功率 (W)</label>
+                  <el-input-number v-model="satelliteForm.eclipse_powers" :min="0" :max="1000" controls-position="right" />
+                </div>
+                <div class="param-item">
+                  <label>太阳能功率 (W)</label>
+                  <el-input-number v-model="satelliteForm.sunlight_powers" :min="0" :max="1000" controls-position="right" />
+                </div>
+                <div class="param-item">
+                  <label>机动功率 (W)</label>
+                  <el-input-number v-model="satelliteForm.maneuver_powers" :min="0" :max="5000" controls-position="right" />
+                </div>
+                <div class="param-item">
+                  <label>成像功率 (W)</label>
+                  <el-input-number v-model="satelliteForm.imaging_powers" :min="0" :max="5000" controls-position="right" />
+                </div>
+              </div>
+
+              <el-divider content-position="left">载荷参数</el-divider>
+              
+              <div class="param-grid">
+                <div class="param-item">
+                  <label>角度转动速度 (°/s)</label>
+                  <el-input-number v-model="satelliteForm.angle_velocity" :min="0.1" :max="10" :step="0.1" controls-position="right" />
+                </div>
+                <div class="param-item">
+                  <label>稳定时间 (s)</label>
+                  <el-input-number v-model="satelliteForm.stable_time" :min="0" :max="60" controls-position="right" />
+                </div>
+                <div class="param-item">
+                  <label>最大侧摆角度 (°)</label>
+                  <el-input-number v-model="satelliteForm.side_swing_angle_Max" :min="0" :max="90" controls-position="right" />
+                </div>
+                <div class="param-item">
+                  <label>最大俯仰角度 (°)</label>
+                  <el-input-number v-model="satelliteForm.pitch_angle_Max" :min="0" :max="90" controls-position="right" />
+                </div>
+                <div class="param-item">
+                  <label>云层厚度阈值 (m)</label>
+                  <el-input-number v-model="satelliteForm.cloud_threshold" :min="0" :max="2000" controls-position="right" />
+                </div>
+              </div>
+
+              <!-- 保存按钮 -->
+              <div class="form-actions-row">
+                <el-button type="primary" :icon="Check" @click="saveSatelliteProperty" :loading="savingSatellite">
+                  保存设置
+                </el-button>
+                <el-button :icon="RefreshRight" @click="resetSatelliteForm">重置</el-button>
+              </div>
+            </div>
+          </el-collapse-transition>
+        </div>
+      </el-card>
     </div>
   </div>
 </template>
@@ -219,14 +329,14 @@
 import { ElMessage } from 'element-plus';
 import { 
   Setting, Clock, Switch, Check, Close, RefreshRight,
-  Upload, UploadFilled, InfoFilled, Document, Delete
+  Upload, UploadFilled, InfoFilled, Document, Delete, Edit, Refresh
 } from '@element-plus/icons-vue';
 
 export default {
   name: 'SystemSettings',
   components: {
     Setting, Clock, Switch, Check, Close, RefreshRight,
-    Upload, UploadFilled, InfoFilled, Document, Delete
+    Upload, UploadFilled, InfoFilled, Document, Delete, Edit, Refresh
   },
   data() {
     const defaultTime = [
@@ -256,7 +366,40 @@ export default {
         'pitchAngle', 'sideAngle', 'settlingTime', 'angularVelocity',
         'width', 'threshold', 'downlink_rate', 'sunlight_powers',
         'maneuver_powers', 'imaging_powers', 'eclipse_powers'
-      ]
+      ],
+      // 单个卫星设置
+      satelliteList: [],
+      selectedSatId: null,
+      loadingSatList: false,
+      savingSatellite: false,
+      satelliteForm: {
+        storage: 500,
+        battery: 5000,
+        downlink_rate: 4,
+        eclipse_powers: 8,
+        sunlight_powers: 300,
+        maneuver_powers: 500,
+        imaging_powers: 700,
+        angle_velocity: 1.0,
+        stable_time: 10,
+        side_swing_angle_Max: 45,
+        pitch_angle_Max: 45,
+        cloud_threshold: 800
+      },
+      satelliteFormDefault: {
+        storage: 500,
+        battery: 5000,
+        downlink_rate: 4,
+        eclipse_powers: 8,
+        sunlight_powers: 300,
+        maneuver_powers: 500,
+        imaging_powers: 700,
+        angle_velocity: 1.0,
+        stable_time: 10,
+        side_swing_angle_Max: 45,
+        pitch_angle_Max: 45,
+        cloud_threshold: 800
+      }
     }
   },
   computed: {
@@ -270,6 +413,8 @@ export default {
   created() {
     const host = window.location.hostname || '127.0.0.1'
     this.baseUrl = `http://${host}:5001`;
+    // 加载卫星列表
+    this.loadSatelliteList();
   },
   methods: {
     resetForm() {
@@ -401,6 +546,81 @@ export default {
     onSatRemove(file) {
       this.satFile = null;
       this.satFileReady = false;
+    },
+
+    // ========== 单个卫星设置方法 ==========
+    // 加载卫星列表
+    async loadSatelliteList() {
+      this.loadingSatList = true;
+      try {
+        const res = await this.$request.post('/satellites/getAllSatellites', { sate_name: '' });
+        if (Array.isArray(res.data)) {
+          this.satelliteList = res.data;
+        }
+      } catch (err) {
+        console.error('加载卫星列表失败:', err);
+        // 如果系统未初始化，不显示错误
+        if (err.response?.status !== 503) {
+          ElMessage.error('加载卫星列表失败');
+        }
+      } finally {
+        this.loadingSatList = false;
+      }
+    },
+
+    // 选择卫星变化
+    onSatelliteChange(satId) {
+      if (!satId) {
+        this.resetSatelliteForm();
+        return;
+      }
+      // 获取选中卫星的详细信息
+      const sat = this.satelliteList.find(s => s.id === satId);
+      if (sat) {
+        // 如果卫星有当前值，使用当前值，否则使用默认值
+        this.satelliteForm = {
+          storage: sat.storage || this.satelliteFormDefault.storage,
+          battery: sat.battery || this.satelliteFormDefault.battery,
+          downlink_rate: sat.downlink_rate || this.satelliteFormDefault.downlink_rate,
+          eclipse_powers: this.satelliteFormDefault.eclipse_powers,
+          sunlight_powers: this.satelliteFormDefault.sunlight_powers,
+          maneuver_powers: this.satelliteFormDefault.maneuver_powers,
+          imaging_powers: this.satelliteFormDefault.imaging_powers,
+          angle_velocity: this.satelliteFormDefault.angle_velocity,
+          stable_time: this.satelliteFormDefault.stable_time,
+          side_swing_angle_Max: this.satelliteFormDefault.side_swing_angle_Max,
+          pitch_angle_Max: this.satelliteFormDefault.pitch_angle_Max,
+          cloud_threshold: this.satelliteFormDefault.cloud_threshold
+        };
+      }
+    },
+
+    // 保存卫星参数
+    async saveSatelliteProperty() {
+      if (!this.selectedSatId) {
+        ElMessage.warning('请先选择卫星');
+        return;
+      }
+
+      this.savingSatellite = true;
+      try {
+        const res = await this.$request.post(
+          `/satellites/setSatelliteProperty/${this.selectedSatId}`,
+          this.satelliteForm
+        );
+        ElMessage.success('卫星参数保存成功');
+      } catch (err) {
+        console.error('保存卫星参数失败:', err);
+        ElMessage.error('保存失败: ' + (err.response?.data?.message || err.message || '未知错误'));
+      } finally {
+        this.savingSatellite = false;
+      }
+    },
+
+    // 重置卫星表单
+    resetSatelliteForm() {
+      this.satelliteForm = { ...this.satelliteFormDefault };
+      ElMessage.info('已重置为默认值');
     }
   }
 }
@@ -845,6 +1065,82 @@ export default {
   
   .field-grid {
     grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+/* ===== 单个卫星设置区域 ===== */
+.sat-single-card {
+  margin-top: 20px;
+  background: #fff;
+}
+
+.sat-single-container {
+  padding: 4px;
+}
+
+.sat-select-row {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 20px;
+}
+
+.sat-select-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.satellite-form-wrapper {
+  animation: fadeIn 0.3s ease;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.param-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 16px;
+  margin-bottom: 20px;
+}
+
+.param-item {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.param-item label {
+  font-size: 12px;
+  color: #606266;
+  font-weight: 500;
+}
+
+.param-item .el-input-number {
+  width: 100%;
+}
+
+@media (max-width: 768px) {
+  .param-grid {
+    grid-template-columns: 1fr;
+  }
+  
+  .sat-select-wrapper {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  
+  .sat-select-wrapper .el-button {
+    align-self: flex-end;
   }
 }
 </style>
