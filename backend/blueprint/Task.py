@@ -472,6 +472,8 @@ def get_old_task_by_id(id):
 # 暂停任务
 @task_bp.route('/pauseTask/<int:id>', methods=['GET'])
 def pause_task(id):
+    if not occ.satellite_network:
+        return jsonify({"error": "卫星网络未初始化，请先上传TLE文件和卫星参数"}), 400
     if occ.satellite_network.pause_task(id):
         return jsonify({"result": "ok"}), 200
     else:
@@ -481,6 +483,8 @@ def pause_task(id):
 # 开始任务
 @task_bp.route('/startTask/<int:id>', methods=['GET'])
 def start_task(id):
+    if not occ.satellite_network:
+        return jsonify({"error": "卫星网络未初始化，请先上传TLE文件和卫星参数"}), 400
     if occ.satellite_network.start_task(id):
         return jsonify({"result": "ok"}), 200
     else:
@@ -519,6 +523,8 @@ def delete_task(id):
 # 手动结束任务
 @task_bp.route('/manualEndTask/<int:id>', methods=['GET'])
 def manual_end_task(id):
+    if not occ.satellite_network:
+        return jsonify({"error": "卫星网络未初始化，请先上传TLE文件和卫星参数"}), 400
     new_task = NewTaskModel.query.filter_by(id=id).first()
     if new_task:
         status = new_task.status

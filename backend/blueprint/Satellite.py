@@ -94,6 +94,8 @@ def get_all_satellites():
     name = request.json.get('sate_name', None)
     name = name.strip() if name else ''
     results = []
+    if not occ.satellite_network:
+        return jsonify({"error": "卫星网络未初始化，请先上传TLE文件和卫星参数"}), 400
     satellites = occ.satellite_network.satellites.values()
     if name == '':
         for satellite in satellites:

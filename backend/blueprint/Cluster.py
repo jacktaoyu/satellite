@@ -13,6 +13,11 @@ cluster_bp = Blueprint('cluster', __name__, url_prefix='/clusters')
 #  查询有哪些轨道
 @cluster_bp.route('/getOrbits', methods=['GET'])
 def get_orbits():
+    if not occ.satellite_network:
+        return jsonify({
+            'status': 'error',
+            'message': '卫星网络未初始化，请先上传TLE文件和卫星参数'
+        }), 400
     orbits = []
     for orbit, info in occ.satellite_network.orbit_info.items():
         orbits.append({orbit: info})
@@ -26,6 +31,11 @@ def get_orbits():
 # 查询轨道列表中的卫星的载荷和分辨率信息
 @cluster_bp.route('/getInfoByOrbits', methods=['POST'])
 def info_by_orbits():
+    if not occ.satellite_network:
+        return jsonify({
+            'status': 'error',
+            'message': '卫星网络未初始化，请先上传TLE文件和卫星参数'
+        }), 400
     data = request.json
     orbits = data.get('orbits')
     print(data)
@@ -65,6 +75,11 @@ def add_cluster():
                 temp += f"{res}" if temp == "" else f",{res}"
             string += temp
     print(string)
+    if not occ.satellite_network:
+        return jsonify({
+            'status': 'error',
+            'message': '卫星网络未初始化，请先上传TLE文件和卫星参数'
+        }), 400
     if occ.satellite_network.creat_single_cluster(name, orbit, string):
         return jsonify({
             'status': 'success',
@@ -80,6 +95,11 @@ def add_cluster():
 # 根据星簇id删除星簇
 @cluster_bp.route('/deleteClusterById/<int:cluster_id>', methods=['DELETE'])
 def delete_cluster_by_id(cluster_id):
+    if not occ.satellite_network:
+        return jsonify({
+            'status': 'error',
+            'message': '卫星网络未初始化，请先上传TLE文件和卫星参数'
+        }), 400
     # 从数据库和卫星网络中都删除星簇
     if occ.satellite_network.delete_cluster_by_cluster_id(cluster_id):
         return jsonify({
@@ -113,6 +133,11 @@ def update_cluster(cluster_id):
             for res in resolution:
                 temp += f"{res}" if temp == "" else f",{res}"
             string += temp
+    if not occ.satellite_network:
+        return jsonify({
+            'status': 'error',
+            'message': '卫星网络未初始化，请先上传TLE文件和卫星参数'
+        }), 400
     if occ.satellite_network.update_cluster(cluster_id, name, orbit, string):
         return jsonify({
             'status': 'success',
