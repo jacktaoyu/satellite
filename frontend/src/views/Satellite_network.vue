@@ -165,9 +165,9 @@
   const hiddenFrustumId = ref(null);  // 当前被隐藏视锥的卫星实体 id（选中自动隐藏）
   const satCheckedMap = reactive({});  // 卫星勾选状态记忆（key: 卫星名，默认勾选）
   const satSwitchMap = reactive({});   // 每颗卫星的路径/视锥体开关记忆（key: 卫星名）
-  const globalPathShow = ref(true);    // 常用功能：全部轨迹开关
-  const globalFrustumShow = ref(true); // 常用功能：全部视锥体开关
-  const globalLinkShow = ref(true);    // 常用功能：通信链路开关
+  const globalPathShow = ref(false);   // 常用功能：全部轨迹开关（默认关：200 条拖尾全开会糊满屏幕）
+  const globalFrustumShow = ref(false); // 常用功能：全部视锥体开关（默认关：视锥全开遮挡地球）
+  const globalLinkShow = ref(false);   // 常用功能：通信链路开关（默认关：链路全开交织成网）
   const showEventBar = ref(true);      // 常用功能：实时事件栏开关
   const satInfoMap = ref({});          // getAllSatelliteInfo 结果（key: satName）
   let hudTimer = null;
@@ -709,9 +709,13 @@
                       if (!pos || !gsPos) return [Cesium.Cartesian3.ZERO, Cesium.Cartesian3.ZERO];
                       return [pos, gsPos];
                   }, false),
-                  width: 2,
+                  width: 1.5,
                   arcType: Cesium.ArcType.NONE,
-                  material: Cesium.Color.fromCssColorString('#00f0ff').withAlpha(0.8)
+                  // 短虚线 + 青色发光，区分星间长虚线，避免整屏实心线糊满
+                  material: new Cesium.PolylineDashMaterialProperty({
+                      color: Cesium.Color.fromCssColorString('#00f0ff').withAlpha(0.75),
+                      dashLength: 10
+                  })
               }
           });
       });
@@ -1048,8 +1052,8 @@
               positions: Cesium.Cartesian3.fromDegreesArray([Positions_of_GroundStations[src].lon, Positions_of_GroundStations[src].lat,
                 Positions_of_GroundStations[dst_dicts[key]].lon, Positions_of_GroundStations[dst_dicts[key]].lat,
                   ]),
-              width: 5, // 线宽
-              material: Cesium.Color.fromCssColorString('#FFFACD') // 线颜色 red , green , blue , alpha#FFFACD
+              width: 2, // 线宽
+              material: Cesium.Color.fromCssColorString('#ffd657').withAlpha(0.55) // 地面站骨干网，黄色低透明，与星间链路色系统一
           }
         });
       });
