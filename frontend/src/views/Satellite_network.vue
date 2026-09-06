@@ -21,8 +21,8 @@
         <div class="hs-item"><b><CountUp :value="planDuration" :decimals="1" suffix="s" /></b><span>规划耗时</span></div>
       </div>
       <div class="sys-title">
-        智能星簇协同运行验证系统
-        <span class="sub-title">卫星网络态势监控</span>
+        卫星网络态势监控
+        <span class="sub-title">SATELLITE NETWORK SITUATION</span>
       </div>
       <div class="sim-time">仿真时间&nbsp;{{ simTime }}</div>
     </div>
@@ -108,7 +108,7 @@
         <div class="panel-title subtrack-title">星下点轨迹</div>
         <SubTrackMap :entity="selectedEntity" :viewer="viewerRef" :period-min="selectedPeriodMin" />
       </template>
-      <div v-else class="empty-tip">点击卫星或左侧列表查看详情</div>
+      <div v-else class="chart-empty detail-empty-static">点击卫星或左侧列表查看详情</div>
       <div class="panel-title">任务状态统计</div>
       <div ref="taskStatusChart" class="right-chart"></div>
       <div class="panel-title">任务满足率趋势</div>
@@ -1242,13 +1242,10 @@
     }
     .sub-title {
         margin-left: 12px;
-        font-size: 12px;
+        font-size: 10px;
         font-weight: 400;
-        letter-spacing: 1px;
-        background: linear-gradient(180deg, #bfefff, #00dcff);
-        -webkit-background-clip: text;
-        background-clip: text;
-        -webkit-text-fill-color: transparent;
+        letter-spacing: 2px;
+        color: rgba(0, 220, 255, 0.5);
     }
     .sim-time {
         position: absolute;
@@ -1311,9 +1308,18 @@
         background: rgba(0, 220, 255, 0.12);
         border-left-color: #00dcff;
     }
-    .sat-name { color: #e8f6ff; font-family: 'Courier New', monospace; flex: 1; }
-    .sat-payload { color: #ffd657; font-size: 11px; }
-    .sat-battery { color: #7fd4ff; font-size: 11px; font-family: 'Courier New', monospace; }
+    .sat-name { color: #e8f6ff; font-family: 'Courier New', monospace; flex: 1; min-width: 0; }
+    .sat-payload {
+        color: #ffd657; font-size: 10px;
+        padding: 0 5px; margin-right: 6px; flex-shrink: 0;
+        border: 1px solid rgba(255, 214, 87, 0.35); border-radius: 3px;
+        background: rgba(255, 214, 87, 0.08);
+    }
+    .sat-battery { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; font-family: 'Courier New', monospace; flex-shrink: 0; }
+    .sat-batt-dot { width: 5px; height: 5px; border-radius: 50%; background: currentColor; box-shadow: 0 0 5px currentColor; }
+    .sat-battery.dot-ok { color: #52ffa8; }
+    .sat-battery.dot-warn { color: #ffd657; }
+    .sat-battery.dot-alarm { color: #ff6b6b; }
     .empty-tip { padding: 20px 12px; font-size: 12px; color: #68809a; text-align: center; }
     .payload-chart { height: 150px; flex-shrink: 0; }
 
@@ -1434,6 +1440,22 @@
         color: #68809a;
         border: 1px dashed rgba(0, 220, 255, 0.18);
         margin: 6px 10px;
+        flex-direction: column;
+        gap: 6px;
+    }
+    .chart-empty::before {
+        content: '';
+        width: 26px; height: 26px;
+        border: 1.5px solid rgba(0, 220, 255, 0.35); border-radius: 50%;
+        border-top-color: transparent; border-bottom-color: transparent;
+        box-shadow: 0 0 10px rgba(0, 220, 255, 0.2);
+    }
+    /* 卫星详情空态：flex 容器内静态布局（规则放在 .chart-empty 之后以覆盖 inset） */
+    .chart-empty.detail-empty-static {
+        position: relative;
+        inset: auto;
+        height: 120px;
+        flex-shrink: 0;
     }
     .close-btn { cursor: pointer; color: #68809a; font-size: 16px; }
     .close-btn:hover { color: #00dcff; }

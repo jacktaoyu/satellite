@@ -3120,3 +3120,10 @@ ctx.fillRect(-108, -22, 72, 44); ctx.fillRect(36, -22, 72, 44) // 太阳翼
 【修改】`frontend/src/utils/request.js`【401 跳转逻辑】axios 全局 401 处理不再无条件 Router.push('/login')：当当前路由为公开页面（/portal、/login、/register）时仅静默清除本地登录态，不强制跳转。根因：token 过期后点击“返回首页”，门户页拉取 /statistics 返回 401，拦截器把用户从公开门户页又弹回登录页。
 
 测试：`npm run build` 通过；Playwright 复现过期 token 场景（localStorage 写入无效 token → 登录页点“返回首页”），修复前跳回 /login，修复后稳定停留 /portal 且页面正常渲染。
+
+## 2026-09-06 卫星网络大屏高分辨率走查优化
+
+【修改】`frontend/src/views/main/main.vue`【侧栏 Logo】logo-text 13px→12px、去字距，高分屏下"智能星簇协同运行验证系统"完整显示。
+【修改】`frontend/src/views/Satellite_network.vue`【多处】① 中央大标题改为页面名"卫星网络态势监控"+ 英文副标 SATELLITE NETWORK SITUATION（系统名由顶栏承载，不再两处重复）；② 卫星列表载荷类型改为黄色描边徽标、电量数字按电量档位着色（绿/黄/红）并加状态光点，不再挤作一团；③ 任务状态统计柱图顶部加数值标签；④ 卫星详情空态与趋势图空态统一为轨道环 + 虚线框样式（修复空态 inset 拉伸覆盖柱图的布局缺陷）。
+
+测试：`npm run build` 通过；Playwright 以 3584×1834 高分辨率截图回归卫星网络页（Logo 完整、列表徽标/电量分色 ✓、空态与图表互不遮挡 ✓），控制台零报错。

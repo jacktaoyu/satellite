@@ -235,9 +235,9 @@ export default {
 }
 
 .logo-text {
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 600;
-  letter-spacing: 0.5px;
+  letter-spacing: 0;
   white-space: nowrap;
   flex: 1;
   min-width: 0;
