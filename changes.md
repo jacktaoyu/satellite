@@ -3133,3 +3133,9 @@ ctx.fillRect(-108, -22, 72, 44); ctx.fillRect(36, -22, 72, 44) // 太阳翼
 【修改】`frontend/src/views/Satellite_network.vue`【地球观感】① 卫星 billboard 增加 scaleByDistance 距离缩放（近 1.0 → 远 0.55）+ 轻微距离半透明，修复 Cesium 反向透视导致的"远处图标放大糊满地球"问题，全球视角下地球恢复干净、LEO 卫星仍可辨认；② 底图 brightness 0.88 / contrast 1.08 / saturation 0.95，压暗提对比突出发光轨道线；③ 大气 hueShift -0.06 / brightnessShift 0.1，晨昏线青色光晕更贴合 HUD 氛围。
 
 测试：`npm run build` 通过；Playwright 截图对比全球视角地球区域（修改前卫星图标覆盖地球表面，修改后地球干净、卫星分布层次清晰），控制台零报错。
+
+## 2026-09-06 卫星图标与拖尾光点优化（回退幽灵缩放方案）
+
+【修改】`frontend/src/views/Satellite_network.vue`【卫星视觉】回退此前"远距离缩小+半透明"方案（远处图标变幽灵残影效果差），改为：① 用提亮加青色光晕的 48px 新图标（SAT_ICON_URI）替换 CZML 内置暗色 16px 图标，billboard scale 0.7 + 距离缩放近 1.0→远 0.7，全球视角下每颗卫星清晰可辨、大小适中；② 轨道拖尾光点显示距离 3.0e7→1.2e7，全球视角下不再出现 200 个杂乱蓝点光斑，拉近后拖尾特效保留。
+
+测试：`npm run build` 通过；Playwright 截图对比全球视角（新图标清晰、蓝点收敛、地球干净），控制台零报错。
