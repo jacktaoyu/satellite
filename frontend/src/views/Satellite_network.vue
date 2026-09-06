@@ -719,6 +719,11 @@
           if (entity.label) {
               entity.label.distanceDisplayCondition = new Cesium.DistanceDisplayCondition(0, 1.0e7);
           }
+          // 卫星图标：远处缩小（原近大远小反向透视导致全球视角下图标糊满地球）
+          if (entity.billboard) {
+              entity.billboard.scaleByDistance = new Cesium.NearFarScalar(1.5e7, 1.0, 8.0e7, 0.55);
+              entity.billboard.translucencyByDistance = new Cesium.NearFarScalar(1.5e7, 0.0, 6.0e7, 0.2);
+          }
           if (entity.path) {
               entity.path.width = 2;
               entity.path.material = new Cesium.PolylineGlowMaterialProperty({

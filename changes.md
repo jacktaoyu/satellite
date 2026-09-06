@@ -3127,3 +3127,9 @@ ctx.fillRect(-108, -22, 72, 44); ctx.fillRect(36, -22, 72, 44) // 太阳翼
 【修改】`frontend/src/views/Satellite_network.vue`【多处】① 中央大标题改为页面名"卫星网络态势监控"+ 英文副标 SATELLITE NETWORK SITUATION（系统名由顶栏承载，不再两处重复）；② 卫星列表载荷类型改为黄色描边徽标、电量数字按电量档位着色（绿/黄/红）并加状态光点，不再挤作一团；③ 任务状态统计柱图顶部加数值标签；④ 卫星详情空态与趋势图空态统一为轨道环 + 虚线框样式（修复空态 inset 拉伸覆盖柱图的布局缺陷）。
 
 测试：`npm run build` 通过；Playwright 以 3584×1834 高分辨率截图回归卫星网络页（Logo 完整、列表徽标/电量分色 ✓、空态与图表互不遮挡 ✓），控制台零报错。
+
+## 2026-09-06 3D 地球视觉优化
+
+【修改】`frontend/src/views/Satellite_network.vue`【地球观感】① 卫星 billboard 增加 scaleByDistance 距离缩放（近 1.0 → 远 0.55）+ 轻微距离半透明，修复 Cesium 反向透视导致的"远处图标放大糊满地球"问题，全球视角下地球恢复干净、LEO 卫星仍可辨认；② 底图 brightness 0.88 / contrast 1.08 / saturation 0.95，压暗提对比突出发光轨道线；③ 大气 hueShift -0.06 / brightnessShift 0.1，晨昏线青色光晕更贴合 HUD 氛围。
+
+测试：`npm run build` 通过；Playwright 截图对比全球视角地球区域（修改前卫星图标覆盖地球表面，修改后地球干净、卫星分布层次清晰），控制台零报错。
