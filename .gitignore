@@ -32,3 +32,7 @@ backend/output_plans/
 
 # 环境变量
 .env
+
+# 大文件（运行时生成/打包产物）
+frontend.zip
+backend/static/trace/
