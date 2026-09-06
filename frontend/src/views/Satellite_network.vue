@@ -163,6 +163,7 @@
   let linkDataSource = null;   // 通信链路数据源（星间链路 + 星地数传链路）
   const linkTargetMap = {};    // 卫星链路连接表（key: satName → {gs, geo}），供链路 CallbackProperty 实时读取
   const hiddenFrustumId = ref(null);  // 当前被隐藏视锥的卫星实体 id（选中自动隐藏）
+  const focusMode = ref(false);       // 跟踪视角：隐藏全部视锥，避免近距离巨锥糊满屏幕
   const satCheckedMap = reactive({});  // 卫星勾选状态记忆（key: 卫星名，默认勾选）
   const satSwitchMap = reactive({});   // 每颗卫星的路径/视锥体开关记忆（key: 卫星名）
   const globalPathShow = ref(false);   // 常用功能：全部轨迹开关（默认关：200 条拖尾全开会糊满屏幕）
@@ -452,7 +453,7 @@
     }
     const glow = satGlowPoints && satGlowPoints.get(id);
     if (glow) glow.show = checked;
-    setFrustumVisible(id, checked && globalFrustumShow.value && sw.frustum && hiddenFrustumId.value !== id);
+    setFrustumVisible(id, checked && globalFrustumShow.value && sw.frustum && hiddenFrustumId.value !== id && !focusMode.value);
   }
 
   // 刷新所有卫星的场景显隐（全局开关切换 / CZML 加载完成后调用）
@@ -475,9 +476,10 @@
   // 详情面板开关：当前选中卫星的视锥显隐
   function toggleFrustumShow(name, show) {
     getSatSwitch(name).frustum = show;
-    // 用户手动打开时解除“选中自动隐藏”，让开关立即生效
+    // 用户手动打开时解除“选中自动隐藏”与跟踪隐藏，让开关立即生效
     const id = `Satellite/${name}`;
     if (show && hiddenFrustumId.value === id) hiddenFrustumId.value = null;
+    if (show && focusMode.value) { focusMode.value = false; applyAllVisibility(); return; }
     applySatVisibility(name);
   }
   // 常用功能：全部轨迹显示/隐藏
@@ -503,24 +505,23 @@
     return getSatSwitch(name).frustum && hiddenFrustumId.value !== `Satellite/${name}`;
   }
 
-  // 选中卫星时隐藏其视锥，避免跟踪视角下视锥糊满屏幕
+  // 选中卫星时进入跟踪视角：隐藏所有视锥（含其他卫星），避免巨锥糊满屏幕
   function onSelectSat(name) {
+    focusMode.value = true;
     if (hiddenFrustumId.value) {
-      const prevName = String(hiddenFrustumId.value).split('/')[1];
       hiddenFrustumId.value = null;
-      applySatVisibility(prevName);  // 恢复上一颗卫星的视锥显隐
     }
     hiddenFrustumId.value = `Satellite/${name}`;
-    applySatVisibility(name);
+    applyAllVisibility();  // 跟踪隐藏影响所有卫星的视锥，需整体刷新
   }
-  // 关闭详情：恢复视锥显示，相机飞回全球视角（页面无 homeButton，需手动复位）
+  // 关闭详情：退出跟踪视角、恢复视锥显示，相机飞回全球视角（页面无 homeButton，需手动复位）
   function closeDetail() {
+    focusMode.value = false;
     if (hiddenFrustumId.value) {
-      const prevName = String(hiddenFrustumId.value).split('/')[1];
       hiddenFrustumId.value = null;
-      applySatVisibility(prevName);
     }
     selectedSat.value = null;
+    applyAllVisibility();
     if (viewerRef) viewerRef.camera.flyHome(2);
   }
 
@@ -807,7 +808,7 @@
           geometry: fillGeometry,
           attributes: {
             color: Cesium.ColorGeometryInstanceAttribute.fromColor(
-              new Cesium.Color(0.0, 0.8627, 1.0, 0.5098)
+              new Cesium.Color(0.0, 0.8627, 1.0, 0.32)  // 视锥填充降透明，减少遮挡压迫感
             ),
             // 远距离隐藏视锥体，减少视觉杂乱和离屏渲染
             distanceDisplayCondition: new Cesium.DistanceDisplayConditionGeometryInstanceAttribute(0, 1.5e7),
