@@ -3114,3 +3114,9 @@ ctx.fillRect(-108, -22, 72, 44); ctx.fillRect(36, -22, 72, 44) // 太阳翼
 【修改】`frontend/src/views/login/LoginCard.vue`【英文副标题折行】brand-sub 字号 10px→9px、字距 3px→1.5px 且不换行，"SATELLITE CLUSTER COLLABORATIVE PLATFORM" 单行显示不再孤立折出 "PLATFORM"。
 
 测试：`npm run build` 通过；Playwright 截图回归 /satellite/network_parameters（青色面板 + 矢量图标 ✓）、/satellite/Xingcu（名称列省略号 ✓）、/login（副标题单行 ✓），控制台零报错。
+
+## 2026-09-06 修复“返回首页被弹回登录页”
+
+【修改】`frontend/src/utils/request.js`【401 跳转逻辑】axios 全局 401 处理不再无条件 Router.push('/login')：当当前路由为公开页面（/portal、/login、/register）时仅静默清除本地登录态，不强制跳转。根因：token 过期后点击“返回首页”，门户页拉取 /statistics 返回 401，拦截器把用户从公开门户页又弹回登录页。
+
+测试：`npm run build` 通过；Playwright 复现过期 token 场景（localStorage 写入无效 token → 登录页点“返回首页”），修复前跳回 /login，修复后稳定停留 /portal 且页面正常渲染。
