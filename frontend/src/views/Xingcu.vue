@@ -40,7 +40,7 @@
         stripe
       >
         <el-table-column prop="id" label="ID" width="60" />
-        <el-table-column prop="name" label="星簇名称" width="150" />
+        <el-table-column prop="name" label="星簇名称" width="175" show-overflow-tooltip />
         <el-table-column prop="orbit" label="包含轨道" min-width="200" show-overflow-tooltip />
         <el-table-column prop="satellite_count" label="卫星数量" width="100" />
         <el-table-column label="包含卫星" min-width="220">

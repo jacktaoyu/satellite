@@ -189,8 +189,9 @@ export default {
 
 .brand-sub {
   margin-top: 6px;
-  font-size: 10px;
-  letter-spacing: 3px;
+  font-size: 9px;
+  letter-spacing: 1.5px;
+  white-space: nowrap;
   color: rgba(160, 190, 235, 0.55);
 }
 

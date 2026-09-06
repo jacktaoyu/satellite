@@ -3106,3 +3106,11 @@ ctx.fillRect(-108, -22, 72, 44); ctx.fillRect(36, -22, 72, 44) // 太阳翼
 【修改】`frontend/src/views/Satellite_network.vue`【接线】引入 SubTrackMap（selectedEntity / selectedPeriodMin 计算属性，周期由 TLE 平均运动推算，缺省 95min）。
 
 测试：`npm run build` 通过（分包体积已验证）；Playwright 截图回归：卫星详情星下点轨迹正确渲染正弦轨道（首点经度 69.665° 与详情面板 69.67° 一致、控制台零报错）；任务属性/星簇/卫星管理页骨架屏加载态正常。
+
+## 2026-09-06 布局协调性检查与修复（全页面走查）
+
+【修改】`frontend/src/views/NetworkParameters.vue`【配色统一】按载荷批量设置页从旧蓝色系（#1e5a96/#7cc3ff）整体迁移到青色 HUD 色系（#00dcff 家族 + #030812/#0b1530 背景），与全站面板一致；载荷类型图标由 emoji（📸📡🌡️）替换为 Element Plus 矢量图标（Camera/Dish/Sunny），消除风格割裂；标题加字距与青色辉光。
+【修改】`frontend/src/views/Xingcu.vue`【表格列换行】星簇名称列 150px→175px 并加 show-overflow-tooltip，长名称不再单词中间断行，超出省略号 + 悬浮提示。
+【修改】`frontend/src/views/login/LoginCard.vue`【英文副标题折行】brand-sub 字号 10px→9px、字距 3px→1.5px 且不换行，"SATELLITE CLUSTER COLLABORATIVE PLATFORM" 单行显示不再孤立折出 "PLATFORM"。
+
+测试：`npm run build` 通过；Playwright 截图回归 /satellite/network_parameters（青色面板 + 矢量图标 ✓）、/satellite/Xingcu（名称列省略号 ✓）、/login（副标题单行 ✓），控制台零报错。
