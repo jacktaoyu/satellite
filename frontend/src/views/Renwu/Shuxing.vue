@@ -104,7 +104,7 @@
             ref="taskTable"
             :data="tableData"
             stripe
-            height="500"
+            max-height="500"
             @selection-change="handleSelectionChange"
             row-key="id"
           >
@@ -187,7 +187,7 @@
         </el-tab-pane>
 
         <el-tab-pane label="历史任务" name="old">
-          <el-table :data="oldTaskData" stripe v-loading="loading" height="500">
+          <el-table :data="oldTaskData" stripe v-loading="loading" max-height="500">
             <el-table-column prop="id" label="ID" width="60" />
             <el-table-column prop="task_name" label="任务名称" width="150" show-overflow-tooltip />
             <el-table-column prop="type" label="任务类型" width="100">
@@ -1238,7 +1238,7 @@ export default {
   display: flex;
   justify-content: flex-end;
   padding-top: 16px;
-  border-top: 1px solid #ebeef5;
+  border-top: 1px solid rgba(0, 220, 255, 0.12);
   margin-top: 16px;
 }
 
