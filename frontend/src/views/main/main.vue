@@ -77,7 +77,12 @@
         </div>
       </el-header>
       <el-main class="tech-main" :style="{ padding: $route.path === '/satellite/satellite_network' ? '0' : '20px' }">
-        <router-view />
+        <!-- 路由过渡：页面切换淡入上移，弱化生硬跳变 -->
+        <router-view v-slot="{ Component }">
+          <transition name="page-fade" mode="out-in">
+            <component :is="Component" />
+          </transition>
+        </router-view>
       </el-main>
     </el-container>
 
@@ -446,5 +451,20 @@ export default {
     radial-gradient(900px 420px at 5% 110%, rgba(80, 60, 200, 0.07), transparent 60%),
     #0b1530;
   position: relative;
+}
+
+/* 路由切换过渡：旧页淡出 + 新页淡入上移 */
+.page-fade-enter-active {
+  transition: opacity 0.28s ease, transform 0.28s ease;
+}
+.page-fade-leave-active {
+  transition: opacity 0.16s ease;
+}
+.page-fade-enter-from {
+  opacity: 0;
+  transform: translateY(8px);
+}
+.page-fade-leave-to {
+  opacity: 0;
 }
 </style>

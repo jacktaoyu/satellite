@@ -172,6 +172,12 @@ export default {
   border: 1px solid rgba(120, 180, 255, 0.3);
   box-shadow: 0 0 20px rgba(64, 158, 255, 0.25);
   margin-bottom: 14px;
+  animation: logo-pulse 3s ease-in-out infinite;
+}
+/* logo 光环呼吸脉动 */
+@keyframes logo-pulse {
+  0%, 100% { box-shadow: 0 0 20px rgba(64, 158, 255, 0.25); }
+  50% { box-shadow: 0 0 30px rgba(79, 195, 247, 0.55), 0 0 60px rgba(79, 195, 247, 0.2); }
 }
 
 .brand-name {

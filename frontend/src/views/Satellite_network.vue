@@ -1,5 +1,7 @@
 <template>
   <div class="situation-page">
+    <!-- 星空粒子背景（Cesium 地球之下，填补深空区域） -->
+    <Starfield :density="0.9" :opacity="0.8" />
     <div id="cesiumContainer"></div>
 
     <!-- 中央态势装饰环（纯装饰，不遮挡交互） -->
@@ -13,10 +15,10 @@
     <!-- 顶部标题栏（左侧内嵌紧凑指标，避免悬浮卡片遮挡地球） -->
     <div class="hud top-header">
       <div class="header-stats">
-        <div class="hs-item"><b>{{ satList.length }}</b><span>在线卫星</span></div>
-        <div class="hs-item"><b>{{ runningTaskCount }}</b><span>正在执行</span></div>
-        <div class="hs-item"><b>{{ satisfaction }}<i class="hs-unit">%</i></b><span>任务满足率</span></div>
-        <div class="hs-item"><b>{{ planDuration }}<i class="hs-unit">s</i></b><span>规划耗时</span></div>
+        <div class="hs-item"><b><CountUp :value="satList.length" /></b><span>在线卫星</span></div>
+        <div class="hs-item"><b><CountUp :value="runningTaskCount" /></b><span>正在执行</span></div>
+        <div class="hs-item"><b><CountUp :value="satisfaction" suffix="%" /></b><span>任务满足率</span></div>
+        <div class="hs-item"><b><CountUp :value="planDuration" :decimals="1" suffix="s" /></b><span>规划耗时</span></div>
       </div>
       <div class="sys-title">
         智能星簇协同运行验证系统
@@ -131,6 +133,8 @@
   import * as Cesium from "cesium";
   import * as echarts from "echarts";
   import { authFetch } from "@/utils/authFetch.js";
+  import Starfield from "@/components/Starfield.vue";
+  import CountUp from "@/components/CountUp.vue";
 
   // ===== 大屏 HUD 数据状态 =====
   const simTime = ref('--');
@@ -316,10 +320,22 @@
       },
       series: [{
         type: 'bar', barWidth: 16,
-        data: names.map(n => ({
-          value: counts[n],
-          itemStyle: { color: palette[n] || '#00dcff', borderRadius: [2, 2, 0, 0] }
-        }))
+        data: names.map(n => {
+          const c = palette[n] || '#00dcff';
+          return {
+            value: counts[n],
+            // 柱体纵向渐变 + 顶部发光，贴合 HUD 质感
+            itemStyle: {
+              color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+                { offset: 0, color: c },
+                { offset: 1, color: c + '33' }
+              ]),
+              borderRadius: [2, 2, 0, 0],
+              shadowColor: c + '88',
+              shadowBlur: 6
+            }
+          };
+        })
       }]
     });
   }
@@ -370,6 +386,15 @@
   function fmtConn(v) {
     if (v === null || v === undefined || v === '') return '无';
     return Array.isArray(v) ? (v.length ? v.join('、') : '无') : String(v);
+  }
+
+  // 卫星列表状态呼吸灯：电量 <20 红色告警，<50 黄色关注，否则绿色在线
+  function satDotClass(sat) {
+    if (typeof sat.battery === 'number') {
+      if (sat.battery < 20) return 'dot-alarm';
+      if (sat.battery < 50) return 'dot-warn';
+    }
+    return 'dot-ok';
   }
 
   // 卫星勾选状态（默认勾选），轮询刷新列表时不重置
@@ -1266,6 +1291,20 @@
 
     /* 卫星列表勾选框 */
     .sat-check { accent-color: #00dcff; margin-right: 6px; flex-shrink: 0; cursor: pointer; }
+
+    /* 卫星状态呼吸灯：绿=在线，黄=低电量关注，红=告警 */
+    .sat-status-dot {
+        width: 6px; height: 6px; border-radius: 50%;
+        margin-right: 7px; flex-shrink: 0;
+        animation: sat-dot-breathe 2.4s ease-in-out infinite;
+    }
+    .sat-status-dot.dot-ok { background: #52ffa8; box-shadow: 0 0 6px rgba(82, 255, 168, 0.8); }
+    .sat-status-dot.dot-warn { background: #ffd657; box-shadow: 0 0 6px rgba(255, 214, 87, 0.8); }
+    .sat-status-dot.dot-alarm { background: #ff6b6b; box-shadow: 0 0 8px rgba(255, 107, 107, 0.9); animation-duration: 1.1s; }
+    @keyframes sat-dot-breathe {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0.35; }
+    }
 
     /* HUD 开关（详情面板/常用功能通用） */
     .hud-switch { position: relative; display: inline-block; width: 30px; height: 16px; flex-shrink: 0; }

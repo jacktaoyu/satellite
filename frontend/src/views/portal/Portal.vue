@@ -747,6 +747,12 @@ export default {
   padding: 60px 24px 40px 9vw;
 }
 
+/* Hero 元素阶梯入场：badge → 标题 → 描述 → 按钮 → 看板依次淡入上移 */
+.hero-badge { animation: fade-up 0.7s ease-out both; }
+.hero-title { animation: fade-up 0.7s 0.12s ease-out both; }
+.hero-desc { animation: fade-up 0.7s 0.24s ease-out both; }
+.hero-actions { animation: fade-up 0.7s 0.36s ease-out both; }
+
 /* ===== 数据看板 ===== */
 .hero-stats {
   position: relative;

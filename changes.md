@@ -3070,3 +3070,19 @@ ctx.fillRect(-108, -22, 72, 44); ctx.fillRect(36, -22, 72, 44) // 太阳翼
 1. `cd frontend && npm install && npm run build` 构建通过（已验证 ✓ built）。
 2. `npm run dev` 启动后逐页访问 /satellite 下各页面：侧边栏/顶栏为统一深色科技风，菜单选中项有发光光带；表格/卡片带 HUD 切角；空状态插画为深色；无浅色残留（已用浏览器截图逐页回归验证）。
 3. 边界场景：el-empty（任务/用例无数据时）、el-dialog 弹窗、el-message 提示均为深色 HUD 风格，不再出现白底。
+
+---
+
+## 2026-09-06 界面科技感增强 v2（前端）
+
+【修改】`frontend/src/components/Starfield.vue`【新增】通用星空粒子背景组件（Canvas 绘制：星星闪烁漂移 + 偶发流星），供卫星网络页/登录页等复用，参数化密度与透明度。
+【修改】`frontend/src/components/CountUp.vue`【新增】数字滚动组件，数值变化时从旧值平滑滚动到新值（easeOut 缓动），非数值占位符（'--'）直接透传。
+【修改】`frontend/src/views/Satellite_network.vue`【卫星网络大屏升级】接入 Starfield 星空背景（地球之外的深空区域透出）；顶栏四项指标改用 CountUp 数字滚动；卫星列表新增电量状态呼吸灯（绿/黄/红三档）；任务状态统计柱图改纵向渐变 + 发光，满足率趋势折线改面积渐变 + 节点光晕。
+【修改】`frontend/src/views/login/Login.vue`【登录页炫酷化】接入 Starfield 星空层；地球外围新增双层轨道装饰环（外环带绕行发光卫星光点、内外环反向旋转）；标语区底部新增三枚能力标签（呼吸灯圆点）；窄屏隐藏轨道环避免错位。
+【修改】`frontend/src/views/login/LoginCard.vue`【登录卡片】新增卡片边缘旋转光束边框（conic-gradient 光带循环扫过）；品牌 logo 光环呼吸脉动。
+【修改】`frontend/src/views/portal/Portal.vue`【门户页】Hero 区元素阶梯入场（badge → 标题 → 描述 → 按钮依次淡入上移，各延迟 0.12s）。
+【修改】`frontend/src/views/Xingneng.vue`【图表 HUD 化】性能分析页全部折线图统一发光线条 + 节点光晕 + 面积纵向渐变；任务执行统计柱图改纵向渐变 + 发光；雷达图三算法分别着色 + 半透明填充 + 描边发光。
+【修改】`frontend/src/views/main/main.vue`【路由过渡】router-view 改用 `<transition name="page-fade" mode="out-in">`（旧页淡出 + 新页淡入上移），替代原 dark-tech.css 中对 `.tech-main > *` 的全量入场动画（该方案在容器内数据更新时也会误触发）。
+【修改】`frontend/src/styles/dark-tech.css`【空状态/过渡】移除 `.tech-main > *` 入场动画规则（改由 main.vue 路由过渡接管）；el-empty 默认浅色插画替换为暗色卫星 SVG（浮动动画 + 光环底座呼吸），所有管理页空状态统一。
+
+测试：`npm run build` 构建通过；本地全栈（Flask:5001 + Vite:5173）起服后 Playwright 截图回归：/login（地球 + 轨道环 + 光束卡片 ✓）、/portal（阶梯入场 ✓）、/satellite/satellite_network（星空透出 + 呼吸灯 + CountUp 占位 '--' ✓）、/satellite/xingneng（渐变发光图表 + 卫星空状态 ✓）、/satellite/renwu/shuxing（发光统计数字 ✓）。

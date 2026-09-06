@@ -539,8 +539,16 @@ export default {
           type: 'line',
           smooth: true,
           data: s.data,
-          lineStyle: { color: s.color },
-          itemStyle: { color: s.color }
+          // 发光线条 + 节点光晕，统一 HUD 质感
+          lineStyle: { color: s.color, width: 2, shadowColor: s.color, shadowBlur: 8 },
+          itemStyle: { color: s.color, shadowColor: s.color, shadowBlur: 5 },
+          // 面积纵向渐变：上实下虚
+          areaStyle: {
+            color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+              { offset: 0, color: s.color + '3d' },
+              { offset: 1, color: s.color + '05' }
+            ])
+          }
         }))
       };
       inst.setOption(option, true);
@@ -633,16 +641,23 @@ export default {
           },
           series: [{
             type: 'radar',
-            data: this.evaluationData.map(item => ({
-              // 响应速度：规划耗时按 0~60s 线性映射为 100~0 分（耗时越短得分越高，超 60s 计 0 分）
-              value: [
-                item.completionRate,
-                item.resourceUtilization,
-                item.imagingQuality,
-                Math.max(0, Math.min(100, Math.round(100 - Number(item.executionTime) / 60 * 100)))
-              ],
-              name: item.algorithm
-            }))
+            // 雷达填充渐变发光：算法色半透明填充 + 描边发光
+            data: this.evaluationData.map((item, idx) => {
+              const c = ['#00dcff', '#8ee06a', '#ffd657'][idx % 3];
+              return {
+                // 响应速度：规划耗时按 0~60s 线性映射为 100~0 分（耗时越短得分越高，超 60s 计 0 分）
+                value: [
+                  item.completionRate,
+                  item.resourceUtilization,
+                  item.imagingQuality,
+                  Math.max(0, Math.min(100, Math.round(100 - Number(item.executionTime) / 60 * 100)))
+                ],
+                name: item.algorithm,
+                lineStyle: { color: c, width: 2, shadowColor: c, shadowBlur: 6 },
+                itemStyle: { color: c },
+                areaStyle: { color: c + '26' }
+              };
+            })
           }]
         };
         radarChartInst.setOption(radarOption, true);
@@ -670,13 +685,23 @@ export default {
             splitLine: { lineStyle: { color: 'rgba(0, 220, 255, 0.12)' } }
           },
           series: [{
-            data: this.evaluationData.map(item => ({
-              value: item.completionRate,
-              itemStyle: {
-                color: item.algorithm === '贪心算法' ? '#00c8f0' :
-                       item.algorithm === '蚁群算法' ? '#67C23A' : '#E6A23C'
-              }
-            })),
+            data: this.evaluationData.map(item => {
+              const c = item.algorithm === '贪心算法' ? '#00c8f0' :
+                        item.algorithm === '蚁群算法' ? '#67C23A' : '#E6A23C';
+              return {
+                value: item.completionRate,
+                // 柱体纵向渐变 + 发光
+                itemStyle: {
+                  color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+                    { offset: 0, color: c },
+                    { offset: 1, color: c + '3d' }
+                  ]),
+                  borderRadius: [3, 3, 0, 0],
+                  shadowColor: c + '88',
+                  shadowBlur: 8
+                }
+              };
+            }),
             type: 'bar',
             barWidth: '40%'
           }]
