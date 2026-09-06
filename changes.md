@@ -3086,3 +3086,13 @@ ctx.fillRect(-108, -22, 72, 44); ctx.fillRect(36, -22, 72, 44) // 太阳翼
 【修改】`frontend/src/styles/dark-tech.css`【空状态/过渡】移除 `.tech-main > *` 入场动画规则（改由 main.vue 路由过渡接管）；el-empty 默认浅色插画替换为暗色卫星 SVG（浮动动画 + 光环底座呼吸），所有管理页空状态统一。
 
 测试：`npm run build` 构建通过；本地全栈（Flask:5001 + Vite:5173）起服后 Playwright 截图回归：/login（地球 + 轨道环 + 光束卡片 ✓）、/portal（阶梯入场 ✓）、/satellite/satellite_network（星空透出 + 呼吸灯 + CountUp 占位 '--' ✓）、/satellite/xingneng（渐变发光图表 + 卫星空状态 ✓）、/satellite/renwu/shuxing（发光统计数字 ✓）。
+
+---
+
+## 2026-09-06 界面科技感增强 v3（前端细节打磨）
+
+【修改】`frontend/src/views/main/main.vue`【Logo 截断修复】logo-text 字号 14px→13px、字距 1px→0.5px，224px 侧栏下"智能星簇协同运行验证系统"完整显示不再省略。
+【修改】`frontend/src/views/Satellite_network.vue`【细节增强】卫星列表电量数字随电量档位变色（与状态灯一致：绿/黄/红）；任务进度条新增流光扫过动画（::after 高光带 2.2s 循环）；底部事件栏按级别显示前置图标（● 普通 / ▲ 警告 / ✖ 告警闪烁）；中央大标题新增光泽缓慢扫过动画。
+【修改】`frontend/src/styles/dark-tech.css`【卡片层次感】el-card 卡头/卡体上沿新增青色高亮渐变线，提升 HUD 面板层次。
+
+测试：`npm run build` 通过；Playwright 截图回归 /satellite/satellite_network（Logo 完整显示、事件图标 ✓）与 /satellite/renwu/shuxing（卡片高亮线 ✓）。

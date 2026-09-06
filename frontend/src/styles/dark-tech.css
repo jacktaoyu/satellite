@@ -787,6 +787,25 @@
   position: relative;
   transition: border-color 0.25s ease, box-shadow 0.25s ease;
 }
+/* 卡片上沿高亮线：提升面板层次感 */
+.tech-main .el-card > .el-card__header,
+.tech-main .el-card > .el-card__body {
+  position: relative;
+}
+.tech-main .el-card > .el-card__header::after,
+.tech-main .el-card > .el-card__body:first-child::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(0, 240, 255, 0.4), transparent);
+  pointer-events: none;
+}
+.tech-main .el-card > .el-card__body:first-child::before {
+  top: 0;
+}
 .tech-main .el-card:hover {
   border-color: rgba(0, 220, 255, 0.5);
   box-shadow: 0 0 18px rgba(0, 220, 255, 0.2), inset 0 0 20px rgba(0, 100, 200, 0.08);

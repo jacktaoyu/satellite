@@ -37,7 +37,7 @@
                  @click.stop @change="toggleSatVisible(sat.name, $event.target.checked)" />
           <span class="sat-name">{{ sat.name }}</span>
           <span class="sat-payload">{{ sat.loadType }}</span>
-          <span class="sat-battery">{{ sat.battery }}Wh</span>
+          <span class="sat-battery" :class="satDotClass(sat)">{{ sat.battery }}Wh</span>
         </div>
         <div v-if="satList.length === 0" class="empty-tip">暂无卫星数据，请先完成系统初始化</div>
       </div>
@@ -1211,6 +1211,13 @@
         background-clip: text;
         -webkit-text-fill-color: transparent;
         filter: drop-shadow(0 0 8px rgba(0, 220, 255, 0.5));
+        /* 标题光泽缓慢扫过 */
+        background-size: 200% 100%;
+        animation: title-sheen-move 5s ease-in-out infinite;
+    }
+    @keyframes title-sheen-move {
+        0%, 100% { background-position: 0% 0; }
+        50% { background-position: 100% 0; }
     }
     .sub-title {
         margin-left: 12px;
@@ -1482,8 +1489,17 @@
         margin-right: 40px;
         font-family: 'Courier New', monospace;
     }
+    /* 事件级别前置小图标 */
+    .event-item::before {
+        content: '●';
+        margin-right: 5px;
+        font-size: 9px;
+        color: #00dcff;
+    }
     .event-item.warn { color: #ffd657; }
+    .event-item.warn::before { content: '▲'; color: #ffd657; }
     .event-item.alarm { color: #ff7a7a; }
+    .event-item.alarm::before { content: '✖'; color: #ff7a7a; animation: blink 1s ease-in-out infinite; }
     @keyframes marquee {
         0% { transform: translateX(100%); }
         100% { transform: translateX(-100%); }
