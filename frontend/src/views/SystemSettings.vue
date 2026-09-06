@@ -14,7 +14,7 @@
           <el-card shadow="never" class="setting-card">
             <template #header>
               <div class="card-header-inner">
-                <el-icon :size="16" color="#67C23A"><Clock /></el-icon>
+                <el-icon :size="16" color="#8ee06a"><Clock /></el-icon>
                 <span class="card-title">时间和参数设置</span>
               </div>
             </template>
@@ -96,7 +96,7 @@
           <el-card shadow="never" class="setting-card mode-card">
             <template #header>
               <div class="card-header-inner">
-                <el-icon :size="16" color="#E6A23C"><Switch /></el-icon>
+                <el-icon :size="16" color="#f0b95c"><Switch /></el-icon>
                 <span class="card-title">系统模式</span>
               </div>
             </template>
@@ -149,7 +149,7 @@
           <el-card shadow="never" class="setting-card upload-mini-card">
             <template #header>
               <div class="card-header-inner">
-                <el-icon :size="16" color="#409EFF"><Upload /></el-icon>
+                <el-icon :size="16" color="#00dcff"><Upload /></el-icon>
                 <span class="card-title">TLE 轨道数据</span>
                 <el-tag size="small" type="danger" effect="light">必需</el-tag>
               </div>
@@ -187,7 +187,7 @@
       <el-card shadow="never" class="setting-card sat-card">
         <template #header>
           <div class="card-header-inner">
-            <el-icon :size="16" color="#909399"><Document /></el-icon>
+            <el-icon :size="16" color="#9fc6e8"><Document /></el-icon>
             <span class="card-title">批量导入卫星参数</span>
             <el-tag size="small" type="danger" effect="light">必需</el-tag>
           </div>
@@ -235,7 +235,7 @@
       <el-card shadow="never" class="setting-card sat-single-card">
         <template #header>
           <div class="card-header-inner">
-            <el-icon :size="16" color="#67C23A"><Edit /></el-icon>
+            <el-icon :size="16" color="#8ee06a"><Edit /></el-icon>
             <span class="card-title">单个卫星参数设置</span>
             <el-button link type="primary" :icon="Setting" @click="$router.push('/satellite/network_parameters')">
               按载荷批量设置
@@ -375,7 +375,7 @@
       <el-card shadow="never" class="setting-card sat-batch-card" v-if="satBatchList.length">
         <template #header>
           <div class="card-header-inner">
-            <el-icon :size="16" color="#E6A23C"><Document /></el-icon>
+            <el-icon :size="16" color="#f0b95c"><Document /></el-icon>
             <span class="card-title">数据列表（{{ satBatchList.length }} 条记录）</span>
             <div class="batch-actions">
               <el-button size="small" :icon="Delete" @click="clearBatchList">清空</el-button>

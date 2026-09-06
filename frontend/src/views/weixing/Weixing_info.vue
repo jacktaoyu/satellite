@@ -5,7 +5,7 @@
       <div class="header-content">
         <div class="header-left">
           <div class="satellite-icon">
-            <el-icon :size="40" color="#409EFF"><OfficeBuilding /></el-icon>
+            <el-icon :size="40" color="#00dcff"><OfficeBuilding /></el-icon>
           </div>
           <div class="header-info">
             <h2 class="satellite-name">{{ satelliteInfo.name || '未知卫星' }}</h2>
@@ -34,7 +34,7 @@
         <el-card shadow="never" class="info-card">
           <template #header>
             <div class="card-header">
-              <el-icon :size="18" color="#67C23A"><InfoFilled /></el-icon>
+              <el-icon :size="18" color="#8ee06a"><InfoFilled /></el-icon>
               <span>基础信息</span>
             </div>
           </template>
@@ -62,7 +62,7 @@
         <el-card shadow="never" class="info-card">
           <template #header>
             <div class="card-header">
-              <el-icon :size="18" color="#E6A23C"><Location /></el-icon>
+              <el-icon :size="18" color="#f0b95c"><Location /></el-icon>
               <span>实时状态</span>
             </div>
           </template>
@@ -85,7 +85,7 @@
         <el-card shadow="never" class="info-card">
           <template #header>
             <div class="card-header">
-              <el-icon :size="18" color="#409EFF"><Box /></el-icon>
+              <el-icon :size="18" color="#00dcff"><Box /></el-icon>
               <span>资源信息</span>
             </div>
           </template>
@@ -101,7 +101,7 @@
         <el-card shadow="never" class="info-card">
           <template #header>
             <div class="card-header">
-              <el-icon :size="18" color="#F56C6C"><Lightning /></el-icon>
+              <el-icon :size="18" color="#f58f8f"><Lightning /></el-icon>
               <span>功率参数</span>
             </div>
           </template>
@@ -119,7 +119,7 @@
     <el-card shadow="never" class="info-card" style="margin-top: 16px;">
       <template #header>
         <div class="card-header">
-          <el-icon :size="18" color="#909399"><Tools /></el-icon>
+          <el-icon :size="18" color="#9fc6e8"><Tools /></el-icon>
           <span>载荷参数</span>
         </div>
       </template>

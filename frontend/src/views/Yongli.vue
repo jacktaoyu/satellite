@@ -4,7 +4,7 @@
     <el-card shadow="never" class="header-card">
       <div class="header-content">
         <div class="header-title">
-          <el-icon :size="24" color="#409EFF"><Document /></el-icon>
+          <el-icon :size="24" color="#00dcff"><Document /></el-icon>
           <div>
             <h2 class="title">示范用例</h2>
             <p class="subtitle">执行典型任务场景，验证系统能力</p>
@@ -121,7 +121,7 @@
       <template #header>
         <div class="result-header">
           <div class="result-title">
-            <el-icon :size="18" color="#67C23A"><CircleCheckFilled /></el-icon>
+            <el-icon :size="18" color="#8ee06a"><CircleCheckFilled /></el-icon>
             <span>用例执行结果</span>
           </div>
           <el-button link :icon="Close" @click="executionResult = null">关闭</el-button>
@@ -214,7 +214,7 @@
       <template #header>
         <div class="history-header">
           <div class="history-title">
-            <el-icon :size="18" color="#909399"><Timer /></el-icon>
+            <el-icon :size="18" color="#9fc6e8"><Timer /></el-icon>
             <span>执行历史</span>
           </div>
           <el-button link type="danger" :icon="Delete" @click="clearHistory">清空历史</el-button>

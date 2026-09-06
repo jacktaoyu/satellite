@@ -6,7 +6,7 @@
         <el-card shadow="never" class="upload-card">
           <template #header>
             <div class="card-header">
-              <el-icon :size="18" color="#409EFF"><Upload /></el-icon>
+              <el-icon :size="18" color="#00dcff"><Upload /></el-icon>
               <span>批量导入任务</span>
             </div>
           </template>
@@ -69,7 +69,7 @@
         <el-card shadow="never" class="case-card">
           <template #header>
             <div class="card-header">
-              <el-icon :size="18" color="#67C23A"><Document /></el-icon>
+              <el-icon :size="18" color="#8ee06a"><Document /></el-icon>
               <span>快速生成用例</span>
             </div>
           </template>
@@ -93,7 +93,7 @@
     <el-card shadow="never" class="result-card" v-if="caseResult">
       <template #header>
         <div class="card-header">
-          <el-icon :size="18" color="#E6A23C"><Check /></el-icon>
+          <el-icon :size="18" color="#f0b95c"><Check /></el-icon>
           <span>用例生成结果</span>
         </div>
       </template>

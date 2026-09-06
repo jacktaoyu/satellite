@@ -777,3 +777,134 @@
   color: #00f0ff;
   text-shadow: 0 0 8px rgba(0, 240, 255, 0.6);
 }
+
+/* =========================================================================
+ * 科技感增强（v2）：HUD 切角面板 / 工具条玻璃化 / 空状态暗化 / 轻量动效
+ * ========================================================================= */
+
+/* —— el-card HUD 切角：四角青色光点，营造全息面板感 —— */
+.tech-main .el-card {
+  position: relative;
+  transition: border-color 0.25s ease, box-shadow 0.25s ease;
+}
+.tech-main .el-card:hover {
+  border-color: rgba(0, 220, 255, 0.5);
+  box-shadow: 0 0 18px rgba(0, 220, 255, 0.2), inset 0 0 20px rgba(0, 100, 200, 0.08);
+}
+.tech-main .el-card::before,
+.tech-main .el-card::after {
+  content: '';
+  position: absolute;
+  width: 8px;
+  height: 8px;
+  pointer-events: none;
+  z-index: 1;
+}
+.tech-main .el-card::before {
+  top: -1px;
+  left: -1px;
+  border-top: 2px solid rgba(0, 240, 255, 0.85);
+  border-left: 2px solid rgba(0, 240, 255, 0.85);
+  border-top-left-radius: 4px;
+  filter: drop-shadow(0 0 3px rgba(0, 240, 255, 0.6));
+}
+.tech-main .el-card::after {
+  bottom: -1px;
+  right: -1px;
+  border-bottom: 2px solid rgba(0, 240, 255, 0.85);
+  border-right: 2px solid rgba(0, 240, 255, 0.85);
+  border-bottom-right-radius: 4px;
+  filter: drop-shadow(0 0 3px rgba(0, 240, 255, 0.6));
+}
+
+/* —— 搜索/工具条卡片：更通透的玻璃质感 + 顶部细高亮线 —— */
+.tech-main .toolbar-card,
+.tech-main .el-card:first-child[style*="margin-bottom"] {
+  backdrop-filter: blur(6px);
+}
+
+/* —— el-empty 空状态：浅色插画与文案压暗，融入深色面板（EP 使用 CSS 变量着色） —— */
+.tech-main .el-empty {
+  --el-empty-fill-color-0: rgba(20, 45, 80, 0.75);
+  --el-empty-fill-color-1: rgba(25, 55, 95, 0.8);
+  --el-empty-fill-color-2: rgba(35, 70, 115, 0.6);
+  --el-empty-fill-color-3: rgba(15, 35, 65, 0.55);
+  --el-empty-fill-color-4: rgba(45, 85, 130, 0.65);
+  --el-empty-fill-color-5: rgba(70, 110, 160, 0.5);
+  --el-empty-fill-color-6: rgba(55, 95, 140, 0.55);
+  --el-empty-fill-color-7: rgba(30, 62, 100, 0.7);
+  --el-empty-fill-color-8: rgba(90, 130, 175, 0.45);
+  --el-empty-fill-color-9: rgba(110, 150, 195, 0.4);
+}
+.tech-main .el-empty__description p {
+  color: #68809a !important;
+  letter-spacing: 1px;
+}
+
+/* —— el-loading 遮罩：统一深色 —— */
+.tech-main .el-loading-mask {
+  background-color: rgba(3, 8, 24, 0.65);
+}
+.tech-main .el-loading-spinner .path {
+  stroke: #00dcff;
+}
+.tech-main .el-loading-spinner .el-loading-text {
+  color: #00dcff;
+  letter-spacing: 2px;
+}
+
+/* —— el-message / el-notification：深色 HUD 化（teleport 到 body，全局覆盖） —— */
+.el-message {
+  background: rgba(6, 18, 42, 0.95);
+  border: 1px solid rgba(0, 220, 255, 0.35);
+  box-shadow: 0 0 16px rgba(0, 220, 255, 0.25);
+}
+.el-message .el-message__content {
+  color: #cfe8ff;
+}
+.el-notification {
+  background: rgba(6, 18, 42, 0.95);
+  border: 1px solid rgba(0, 220, 255, 0.35);
+  box-shadow: 0 0 16px rgba(0, 220, 255, 0.2);
+}
+.el-notification__title {
+  color: #e8f6ff;
+}
+.el-notification__content {
+  color: #9fc6e8;
+}
+
+/* —— el-timeline：示范用例执行历史 —— */
+.tech-main .el-timeline-item__timestamp {
+  color: #68809a;
+}
+.tech-main .el-timeline-item__content {
+  color: #cfe8ff;
+}
+
+/* —— 统计卡片图标块：统一 HUD 圆角与发光 —— */
+.tech-main .stat-card .stat-icon {
+  border-radius: 8px;
+  box-shadow: inset 0 0 12px rgba(0, 220, 255, 0.1);
+}
+
+/* —— 弹窗打开时的全局遮罩更暗，聚焦弹窗本体 —— */
+.el-overlay {
+  background-color: rgba(2, 6, 16, 0.72);
+  backdrop-filter: blur(2px);
+}
+
+/* —— 页面切换过渡：主区域内容淡入上移，弱化生硬跳变 —— */
+.tech-main > * {
+  animation: tech-fade-in 0.35s ease;
+}
+@keyframes tech-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}

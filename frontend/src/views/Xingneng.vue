@@ -4,7 +4,7 @@
     <el-card shadow="never" class="header-card">
       <div class="header-content">
         <div class="header-title">
-          <el-icon :size="24" color="#409EFF"><TrendCharts /></el-icon>
+          <el-icon :size="24" color="#00dcff"><TrendCharts /></el-icon>
           <div>
             <h2 class="title">性能分析</h2>
             <p class="subtitle">任务规划算法评估与系统性能监控</p>
@@ -122,7 +122,7 @@
           <template #header>
             <div class="card-header">
               <div class="header-title">
-                <el-icon :size="18" color="#409EFF"><TrendCharts /></el-icon>
+                <el-icon :size="18" color="#00dcff"><TrendCharts /></el-icon>
                 <span>多算法性能对比</span>
               </div>
             </div>
@@ -155,7 +155,7 @@
               <template #header>
                 <div class="chart-header">
                   <div class="chart-title">
-                    <el-icon :size="18" color="#409EFF"><PieChart /></el-icon>
+                    <el-icon :size="18" color="#00dcff"><PieChart /></el-icon>
                     <span>算法评估指标</span>
                   </div>
                   <el-radio-group v-model="selectedAlgorithm" size="small" @change="onAlgorithmChange">
@@ -173,7 +173,7 @@
               <template #header>
                 <div class="chart-header">
                   <div class="chart-title">
-                    <el-icon :size="18" color="#67C23A"><Histogram /></el-icon>
+                    <el-icon :size="18" color="#8ee06a"><Histogram /></el-icon>
                     <span>任务执行统计</span>
                   </div>
                 </div>
@@ -188,7 +188,7 @@
           <template #header>
             <div class="card-header">
               <div class="header-title">
-                <el-icon :size="18" color="#909399"><Document /></el-icon>
+                <el-icon :size="18" color="#9fc6e8"><Document /></el-icon>
                 <span>详细评估数据</span>
               </div>
               <el-button link :icon="Refresh" @click="loadEvaluationData">刷新</el-button>
@@ -763,7 +763,7 @@ export default {
 /* 头部卡片 */
 .header-card {
   margin-bottom: 20px;
-  background: linear-gradient(135deg, #f5f7fa 0%, #e4e7ed 100%);
+  /* 深色 HUD 渐变由 dark-tech.css 的 .header-card 规则统一覆盖 */
 }
 
 .header-content {
@@ -813,7 +813,7 @@ export default {
 
 .meta-item {
   font-size: 14px;
-  color: #606266;
+  color: #9fc6e8;
 }
 
 .meta-item b {

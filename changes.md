@@ -3051,3 +3051,22 @@ ctx.fillRect(-108, -22, 72, 44); ctx.fillRect(36, -22, 72, 44) // 太阳翼
 
 1. **正常路径**：`py_compile` 通过；library/ 文件存在时重启后端（PID 44925）→ 日志显示"检测到已存在的初始化文件，直接复用"×3 → 立即通过 TLE/卫星参数等待 → "初始化所有卫星的轨迹完成" → 主循环运行，全程无需手动上传 ✅。
 2. **边界场景**：删除 library/TLE.txt 后重启 → 日志打印"初始化文件缺失，等待用户上传"，系统设置页上传后正常初始化（原等待逻辑不变）。
+
+---
+
+## 2026-09-06 界面科技感统一优化（前端）
+
+【修改】frontend/src/views/main/main.vue：重设计后台主框架。侧边栏改为深空渐变玻璃拟态，菜单项增加专属图标（卫星网络/系统设置/卫星管理/任务管理/星簇管理/地面站/示范用例/性能分析），选中态改为青色渐变光带+左侧发光指示条；logo 增加渐变星形图标与发光标题；侧栏底部新增 SYSTEM ONLINE 状态装饰。顶栏增加折叠按钮、当前页面名+英文副标、LINK NORMAL 链路状态灯。主区域背景改为径向渐变深空氛围。
+
+【修改】frontend/src/App.vue：全局底色由浅灰 #f5f5f5 改为深空 #030812（避免路由切换闪白），全局滚动条改为青色科技风。
+
+【修改】frontend/src/styles/dark-tech.css：追加科技感增强规则——el-card 增加 HUD 切角（左上/右下青色光点）与悬停发光；el-empty 空状态插画通过 CSS 变量压暗融入深色面板；el-loading/el-message/el-notification/遮罩层统一深色 HUD 化；el-timeline 配色适配；页面内容淡入过渡动画。
+
+【修改】frontend/src/views/Xingneng.vue：移除头部卡片浅色渐变残留，meta-item 文字改浅色，图标硬编码主题蓝（#409EFF 等）统一替换为科技青色系。
+
+【修改】frontend/src/views/weixing/Weixing_info.vue、Yongli.vue、SystemSettings.vue、Renwu/Shezhi.vue：图标硬编码浅色（#409EFF/#67C23A/#E6A23C/#F56C6C/#909399/#606266/#303133）统一替换为深色科技风配色（#00dcff/#8ee06a/#f0b95c/#f58f8f/#9fc6e8/#e8f6ff）。
+
+测试步骤：
+1. `cd frontend && npm install && npm run build` 构建通过（已验证 ✓ built）。
+2. `npm run dev` 启动后逐页访问 /satellite 下各页面：侧边栏/顶栏为统一深色科技风，菜单选中项有发光光带；表格/卡片带 HUD 切角；空状态插画为深色；无浅色残留（已用浏览器截图逐页回归验证）。
+3. 边界场景：el-empty（任务/用例无数据时）、el-dialog 弹窗、el-message 提示均为深色 HUD 风格，不再出现白底。
