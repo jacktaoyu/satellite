@@ -1,0 +1,380 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 222 84% 5%;
+    --foreground: 210 60% 88%;
+    --card: 219 70% 10%;
+    --card-foreground: 210 60% 88%;
+    --popover: 219 70% 10%;
+    --popover-foreground: 210 60% 88%;
+    --primary: 187 100% 50%;
+    --primary-foreground: 222 84% 6%;
+    --secondary: 217 55% 18%;
+    --secondary-foreground: 205 80% 80%;
+    --muted: 217 45% 16%;
+    --muted-foreground: 213 35% 60%;
+    --accent: 217 60% 22%;
+    --accent-foreground: 187 100% 65%;
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 214 60% 28%;
+    --input: 214 60% 28%;
+    --ring: 187 100% 50%;
+    --radius: 0.375rem;
+    --sidebar-background: 221 80% 7%;
+    --sidebar-foreground: 210 60% 85%;
+    --sidebar-primary: 187 100% 50%;
+    --sidebar-primary-foreground: 222 84% 6%;
+    --sidebar-accent: 217 60% 20%;
+    --sidebar-accent-foreground: 210 80% 85%;
+    --sidebar-border: 214 60% 26%;
+    --sidebar-ring: 187 100% 50%;
+  }
+
+  * { @apply border-border; }
+
+  html, body, #root { height: 100%; }
+
+  body {
+    @apply text-foreground;
+    background:
+      radial-gradient(ellipse 90% 60% at 50% -10%, rgba(0, 120, 220, 0.22), transparent 60%),
+      radial-gradient(ellipse 60% 50% at 50% 110%, rgba(0, 90, 190, 0.16), transparent 60%),
+      #02081a;
+    font-family: "PingFang SC", "Microsoft YaHei", "Helvetica Neue", Arial, sans-serif;
+    font-size: 13px;
+  }
+
+  /* 全局氛围层：网格 + 极光 + 慢速漂移光斑 */
+  body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    z-index: 0;
+    pointer-events: none;
+    background-image:
+      linear-gradient(rgba(0, 180, 255, 0.035) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(0, 180, 255, 0.035) 1px, transparent 1px);
+    background-size: 44px 44px;
+    mask-image: radial-gradient(ellipse 80% 70% at 50% 40%, black 30%, transparent 90%);
+  }
+  body::after {
+    content: "";
+    position: fixed;
+    inset: 0;
+    z-index: 0;
+    pointer-events: none;
+    background:
+      radial-gradient(circle 300px at 15% 20%, rgba(0, 220, 255, 0.05), transparent 70%),
+      radial-gradient(circle 380px at 85% 75%, rgba(120, 80, 255, 0.045), transparent 70%);
+    animation: aurora-drift 18s ease-in-out infinite alternate;
+  }
+  #root { position: relative; z-index: 1; }
+
+  ::-webkit-scrollbar { width: 5px; height: 5px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: rgba(0, 220, 255, 0.25); border-radius: 3px; }
+  ::-webkit-scrollbar-thumb:hover { background: rgba(0, 220, 255, 0.5); }
+}
+
+@layer components {
+  /* ========== HUD 面板 ========== */
+  .tech-panel {
+    position: relative;
+    background: linear-gradient(160deg, rgba(6, 30, 68, 0.5), rgba(3, 14, 36, 0.62));
+    border: 1px solid rgba(0, 200, 255, 0.22);
+    box-shadow: inset 0 0 28px rgba(0, 120, 240, 0.1);
+    backdrop-filter: blur(2px);
+    animation: panel-in 0.4s ease-out both;
+  }
+  .tech-panel::before,
+  .tech-panel::after {
+    content: "";
+    position: absolute;
+    width: 10px;
+    height: 10px;
+    pointer-events: none;
+    filter: drop-shadow(0 0 3px rgba(0, 220, 255, 0.9));
+    animation: corner-breathe 2.6s ease-in-out infinite;
+  }
+  .tech-panel::before {
+    top: -1px; left: -1px;
+    border-top: 2px solid #00dcff;
+    border-left: 2px solid #00dcff;
+  }
+  .tech-panel::after {
+    bottom: -1px; right: -1px;
+    border-bottom: 2px solid #00dcff;
+    border-right: 2px solid #00dcff;
+    animation-delay: 1.3s;
+  }
+
+  .panel-title {
+    @apply flex items-center gap-1.5 text-[13px] font-semibold tracking-wide;
+    color: #9fe8ff;
+    text-shadow: 0 0 8px rgba(0, 220, 255, 0.5);
+  }
+  .panel-title::before {
+    content: "";
+    width: 3px;
+    height: 12px;
+    background: linear-gradient(180deg, #4ff3ff, #008ee0);
+    box-shadow: 0 0 6px rgba(79, 243, 255, 0.8);
+  }
+  /* 标题尾部数据流光条 */
+  .panel-title::after {
+    content: "";
+    flex: 1;
+    height: 1px;
+    margin-left: 4px;
+    background: linear-gradient(90deg, rgba(0, 220, 255, 0.45), transparent 70%);
+    overflow: hidden;
+    position: relative;
+  }
+
+  /* 统计卡：角标 + 呼吸光 */
+  .stat-card::before,
+  .stat-card::after {
+    content: "";
+    position: absolute;
+    width: 8px;
+    height: 8px;
+    pointer-events: none;
+    filter: drop-shadow(0 0 3px rgba(0, 220, 255, 0.8));
+  }
+  .stat-card::before { top: -1px; left: -1px; border-top: 1.5px solid rgba(0, 220, 255, 0.8); border-left: 1.5px solid rgba(0, 220, 255, 0.8); }
+  .stat-card::after { bottom: -1px; right: -1px; border-bottom: 1.5px solid rgba(0, 220, 255, 0.8); border-right: 1.5px solid rgba(0, 220, 255, 0.8); }
+
+  .stat-card {
+    position: relative;
+    background: linear-gradient(150deg, rgba(8, 42, 92, 0.55), rgba(4, 18, 44, 0.65));
+    border: 1px solid rgba(0, 200, 255, 0.22);
+    padding: 10px 12px;
+  }
+
+  .glow-text {
+    color: #4ff3ff;
+    text-shadow: 0 0 12px rgba(79, 243, 255, 0.7);
+  }
+
+  .num-font {
+    font-family: "DIN Alternate", "Bahnschrift", "Segoe UI", sans-serif;
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* ========== 导航 ========== */
+  .nav-item {
+    @apply flex items-center gap-2.5 px-4 py-2.5 mx-2 my-0.5 cursor-pointer transition-all duration-200;
+    color: #7ea6d8;
+    border: 1px solid transparent;
+    border-radius: 2px;
+  }
+  .nav-item:hover { color: #bfeaff; background: rgba(0, 150, 255, 0.12); }
+  .nav-item.active {
+    position: relative;
+    color: #e0f6ff;
+    background: linear-gradient(90deg, rgba(0, 180, 255, 0.35), rgba(0, 180, 255, 0.06));
+    border-color: rgba(0, 220, 255, 0.45);
+    box-shadow: inset 0 0 16px rgba(0, 180, 255, 0.18), 0 0 12px rgba(0, 160, 255, 0.15);
+  }
+  .nav-item.active::before {
+    content: "";
+    position: absolute;
+    left: -1px; top: 20%; bottom: 20%;
+    width: 2px;
+    background: #4ff3ff;
+    box-shadow: 0 0 8px rgba(79, 243, 255, 0.9), 0 0 16px rgba(79, 243, 255, 0.5);
+  }
+  .nav-item.active::after {
+    content: "";
+    position: absolute;
+    right: 10px;
+    width: 5px; height: 5px;
+    border-radius: 9999px;
+    background: #4ff3ff;
+    box-shadow: 0 0 6px rgba(79, 243, 255, 0.9);
+    animation: blink-soft 1.8s ease-in-out infinite;
+  }
+  .nav-group {
+    @apply mx-2 mt-2 px-4 pt-1 text-[10px] tracking-widest;
+    color: #3d6491;
+  }
+
+  /* ========== 按钮 ========== */
+  .tech-btn {
+    @apply relative overflow-hidden px-3 py-1.5 text-xs cursor-pointer transition-all rounded-[2px];
+    background: linear-gradient(180deg, rgba(0, 180, 255, 0.45), rgba(0, 110, 220, 0.45));
+    border: 1px solid rgba(80, 220, 255, 0.55);
+    color: #e0f6ff;
+  }
+  .tech-btn::after {
+    content: "";
+    position: absolute;
+    top: 0; bottom: 0;
+    width: 40%;
+    left: -60%;
+    background: linear-gradient(100deg, transparent, rgba(200, 245, 255, 0.35), transparent);
+    transform: skewX(-20deg);
+    transition: left 0.5s ease;
+    pointer-events: none;
+  }
+  .tech-btn:hover { box-shadow: 0 0 12px rgba(0, 220, 255, 0.45); }
+  .tech-btn:hover::after { left: 120%; }
+  .tech-btn:disabled { opacity: 0.45; cursor: not-allowed; box-shadow: none; }
+  .tech-btn:disabled::after { display: none; }
+
+  .tech-btn-ghost {
+    @apply px-3 py-1.5 text-xs cursor-pointer transition-all rounded-[2px];
+    border: 1px solid rgba(80, 200, 255, 0.35);
+    color: #8fd4f0;
+    background: rgba(0, 80, 160, 0.18);
+  }
+  .tech-btn-ghost:hover { color: #e0f6ff; border-color: rgba(80, 220, 255, 0.65); }
+
+  .tech-btn-danger {
+    @apply px-3 py-1.5 text-xs cursor-pointer transition-all rounded-[2px];
+    border: 1px solid rgba(255, 110, 110, 0.5);
+    color: #ff9d9d;
+    background: rgba(200, 40, 40, 0.15);
+  }
+  .tech-btn-danger:hover { box-shadow: 0 0 10px rgba(255, 90, 90, 0.4); }
+
+  /* ========== 表单 ========== */
+  .tech-input {
+    @apply px-2.5 py-1.5 text-xs outline-none rounded-[2px];
+    background: rgba(4, 18, 44, 0.7);
+    border: 1px solid rgba(0, 200, 255, 0.25);
+    color: #d8f2ff;
+  }
+  .tech-input::placeholder { color: #3d6491; }
+  .tech-input:focus { border-color: rgba(80, 220, 255, 0.7); box-shadow: 0 0 8px rgba(0, 200, 255, 0.25); }
+
+  select.tech-input option { background: #04122c; color: #d8f2ff; }
+
+  /* ========== 表格 ========== */
+  .tech-table { @apply w-full text-xs; }
+  .tech-table thead th {
+    @apply px-2.5 py-2 text-left font-normal whitespace-nowrap;
+    color: #5d8cb8;
+    border-bottom: 1px solid rgba(0, 200, 255, 0.25);
+    background: rgba(0, 100, 200, 0.08);
+  }
+  .tech-table tbody td {
+    @apply px-2.5 py-2 whitespace-nowrap;
+    color: #b8d8f0;
+    border-bottom: 1px solid rgba(0, 200, 255, 0.08);
+  }
+  .tech-table tbody tr { transition: background 0.15s, box-shadow 0.15s; }
+  .tech-table tbody tr:hover {
+    background: rgba(0, 160, 255, 0.1);
+    box-shadow: inset 2px 0 0 rgba(79, 243, 255, 0.8), inset 0 0 20px rgba(0, 180, 255, 0.08);
+  }
+
+  .table-link { @apply cursor-pointer text-[#4fd8ff] hover:text-[#9fe8ff] hover:underline mx-1; }
+  .table-link-danger { @apply cursor-pointer text-[#ff8d8d] hover:text-[#ffbdbd] hover:underline mx-1; }
+
+  /* ========== 弹窗 ========== */
+  .modal-mask {
+    @apply fixed inset-0 z-50 flex items-center justify-center;
+    background: rgba(2, 8, 26, 0.7);
+    backdrop-filter: blur(3px);
+  }
+
+  /* ========== 描述网格 ========== */
+  .desc-item { @apply flex flex-col gap-0.5; }
+  .desc-label { color: #5d8cb8; font-size: 11px; }
+  .desc-value { color: #d8f2ff; font-size: 12px; }
+
+  .dot { display: inline-block; width: 6px; height: 6px; border-radius: 9999px; }
+
+  /* 扫描线装饰 */
+  .scan-deco {
+    position: relative;
+    overflow: hidden;
+  }
+  .scan-deco::after {
+    content: "";
+    position: absolute;
+    left: 0; right: 0; top: 0;
+    height: 30%;
+    background: linear-gradient(180deg, transparent, rgba(0, 220, 255, 0.06), transparent);
+    animation: scan-move 5s linear infinite;
+    pointer-events: none;
+  }
+}
+
+@keyframes scan-move {
+  0% { transform: translateY(-100%); }
+  100% { transform: translateY(400%); }
+}
+@keyframes dash-flow { to { stroke-dashoffset: -24; } }
+@keyframes blink-soft { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+@keyframes float-y { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-8px); } }
+@keyframes marquee { 0% { transform: translateX(0); } 100% { transform: translateX(-50%); } }
+@keyframes ping-slow { 0% { transform: scale(0.8); opacity: 0.8; } 100% { transform: scale(2.4); opacity: 0; } }
+@keyframes aurora-drift {
+  0% { transform: translate(0, 0); opacity: 0.8; }
+  100% { transform: translate(40px, -30px); opacity: 1; }
+}
+@keyframes panel-in {
+  0% { opacity: 0; transform: translateY(8px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+@keyframes corner-breathe { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+@keyframes spin-slow { to { transform: rotate(360deg); } }
+@keyframes spin-rev { to { transform: rotate(-360deg); } }
+.animate-dash { animation: dash-flow 1.2s linear infinite; }
+.animate-blink { animation: blink-soft 1.6s ease-in-out infinite; }
+.animate-float { animation: float-y 4s ease-in-out infinite; }
+
+/* ========== 雷达环（Logo / 状态点用） ========== */
+.radar-ring {
+  position: absolute;
+  inset: -5px;
+  border-radius: 9999px;
+  border: 1px dashed rgba(0, 220, 255, 0.55);
+  animation: spin-slow 8s linear infinite;
+  pointer-events: none;
+}
+.radar-ring-outer {
+  position: absolute;
+  inset: -9px;
+  border-radius: 9999px;
+  border: 1px solid transparent;
+  border-top-color: rgba(79, 243, 255, 0.8);
+  border-right-color: rgba(79, 243, 255, 0.25);
+  animation: spin-rev 5s linear infinite;
+  pointer-events: none;
+}
+
+/* ========== 顶栏装饰虚线流 ========== */
+.header-deco {
+  flex: 1;
+  height: 1px;
+  margin: 0 16px;
+  background: repeating-linear-gradient(90deg, rgba(0, 220, 255, 0.5) 0 6px, transparent 6px 12px);
+  mask-image: linear-gradient(90deg, transparent, black 20%, black 80%, transparent);
+  animation: deco-flow 3s linear infinite;
+}
+@keyframes deco-flow { to { background-position-x: 12px; } }
+
+/* 大屏标题侧翼 */
+.title-wing {
+  display: inline-block;
+  width: 56px;
+  height: 10px;
+  background:
+    linear-gradient(90deg, transparent, rgba(0, 220, 255, 0.7)) left/70% 1px no-repeat,
+    linear-gradient(90deg, transparent, rgba(0, 220, 255, 0.9)) left/40% 2px no-repeat;
+  background-position: left center;
+  clip-path: polygon(0 50%, 100% 0, 100% 100%);
+}
+.title-wing.right { transform: scaleX(-1); }
+
+/* 中央雷达环旋转 */
+@keyframes radar-spin { to { transform: rotate(360deg); } }
+.radar-spin { animation: radar-spin 60s linear infinite; }
+.radar-spin-fast { animation: radar-spin 18s linear infinite reverse; }

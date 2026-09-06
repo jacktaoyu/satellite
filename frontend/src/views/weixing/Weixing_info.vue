@@ -70,7 +70,7 @@
             <el-descriptions-item label="卫星位置">{{ satelliteInfo.position || '-' }}</el-descriptions-item>
             <el-descriptions-item label="速度">{{ satelliteInfo.speed || '-' }}</el-descriptions-item>
             <el-descriptions-item label="星下点">{{ satelliteInfo.sub_point || '-' }}</el-descriptions-item>
-            <el-descriptions-item label="飞行圈数">{{ satelliteInfo.turns || '-' }}</el-descriptions-item>
+            <el-descriptions-item label="飞行圈数">{{ satelliteInfo.turns !== undefined && satelliteInfo.turns !== null ? satelliteInfo.turns : '-' }}</el-descriptions-item>
             <el-descriptions-item label="连接的高轨卫星">{{ satelliteInfo.connecting_geo || '无' }}</el-descriptions-item>
             <el-descriptions-item label="执行中的任务">{{ satelliteInfo.running_task || '无' }}</el-descriptions-item>
             <el-descriptions-item label="任务总数">{{ satelliteInfo.task_num || '0' }}</el-descriptions-item>
@@ -90,7 +90,7 @@
             </div>
           </template>
           <el-descriptions :column="1" border>
-            <el-descriptions-item label="存储容量">{{ satelliteInfo.storage ? satelliteInfo.storage + ' GB' : '-' }}</el-descriptions-item>
+            <el-descriptions-item label="存储容量">{{ satelliteInfo.storage !== undefined && satelliteInfo.storage !== null ? satelliteInfo.storage + ' GB' : '-' }}</el-descriptions-item>
             <el-descriptions-item label="电池容量">{{ satelliteInfo.battery ? satelliteInfo.battery + ' Wh' : '-' }}</el-descriptions-item>
             <el-descriptions-item label="下行速率">{{ satelliteInfo.downlink_rate ? satelliteInfo.downlink_rate + ' GB/s' : '-' }}</el-descriptions-item>
           </el-descriptions>
@@ -195,15 +195,17 @@ export default {
   },
   computed: {
     payloadParams() {
+      // 显式判空（undefined/null），避免真值判断把合法的 0 值显示为 '-'
+      const fmt = (v, unit) => (v !== undefined && v !== null && v !== '') ? v + unit : null;
       return [
-        { label: '侧摆角', value: this.satelliteInfo.sideAngle ? this.satelliteInfo.sideAngle + '°' : null },
-        { label: '俯仰角', value: this.satelliteInfo.pitchAngle ? this.satelliteInfo.pitchAngle + '°' : null },
-        { label: '载荷转动角速度', value: this.satelliteInfo.angleVelocity ? this.satelliteInfo.angleVelocity + '°/s' : null },
-        { label: '稳定时间', value: this.satelliteInfo.settlingTime ? this.satelliteInfo.settlingTime + 's' : null },
-        { label: '云层遮挡阈值', value: this.satelliteInfo.threshold ? this.satelliteInfo.threshold + 'm' : null },
-        { label: '最大侧摆角度', value: this.satelliteInfo.side_swing_angle_Max ? this.satelliteInfo.side_swing_angle_Max + '°' : null },
-        { label: '最大俯仰角度', value: this.satelliteInfo.pitch_angle_Max ? this.satelliteInfo.pitch_angle_Max + '°' : null },
-        { label: '角度转动速度', value: this.satelliteInfo.angle_velocity ? this.satelliteInfo.angle_velocity + '°/s' : null }
+        { label: '侧摆角', value: fmt(this.satelliteInfo.sideAngle, '°') },
+        { label: '俯仰角', value: fmt(this.satelliteInfo.pitchAngle, '°') },
+        { label: '载荷转动角速度', value: fmt(this.satelliteInfo.angleVelocity, '°/s') },
+        { label: '稳定时间', value: fmt(this.satelliteInfo.settlingTime, 's') },
+        { label: '云层遮挡阈值', value: fmt(this.satelliteInfo.threshold, 'm') },
+        { label: '最大侧摆角度', value: fmt(this.satelliteInfo.side_swing_angle_Max, '°') },
+        { label: '最大俯仰角度', value: fmt(this.satelliteInfo.pitch_angle_Max, '°') },
+        { label: '角度转动速度', value: fmt(this.satelliteInfo.angle_velocity, '°/s') }
       ];
     }
   },
@@ -213,7 +215,7 @@ export default {
   methods: {
     loadSatelliteInfo() {
       const name = this.$route.params.name;
-      this.$request.get(`/satellites/getSatelliteByName/${name}`).then(res => {
+      this.$request.get(`/satellites/getSatelliteByName/${encodeURIComponent(name)}`).then(res => {
         if (res.data) {
           this.satelliteInfo = res.data;
         }

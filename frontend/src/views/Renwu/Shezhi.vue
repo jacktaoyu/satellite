@@ -42,6 +42,10 @@
             <el-button :icon="Delete" @click="clearFile">清空</el-button>
           </div>
 
+          <div class="quick-actions">
+            <el-button link type="primary" @click="goToTaskManage">前往任务管理查看列表</el-button>
+          </div>
+
           <el-alert
             title="导入说明"
             type="info"
@@ -95,12 +99,21 @@
       </template>
       <el-descriptions :column="2" border>
         <el-descriptions-item label="用例类型">{{ caseResult.caseType }}</el-descriptions-item>
+        <el-descriptions-item label="任务ID">{{ caseResult.id || '-' }}</el-descriptions-item>
         <el-descriptions-item label="任务数量">{{ caseResult.taskCount }}</el-descriptions-item>
         <el-descriptions-item label="生成时间">{{ caseResult.generateTime }}</el-descriptions-item>
+        <el-descriptions-item label="任务状态">{{ caseResult.status || '-' }}</el-descriptions-item>
+        <el-descriptions-item label="载荷类型">{{ caseResult.sensorType || '-' }}</el-descriptions-item>
+        <el-descriptions-item label="任务类型">{{ caseResult.taskType || '-' }}</el-descriptions-item>
+        <el-descriptions-item label="执行卫星">{{ caseResult.assignedSatelliteName || '未分配' }}</el-descriptions-item>
+        <el-descriptions-item label="目标位置" :span="2">{{ caseResult.targetLocation || '-' }}</el-descriptions-item>
         <el-descriptions-item label="状态">
           <el-tag type="success">生成成功</el-tag>
         </el-descriptions-item>
       </el-descriptions>
+      <div class="result-actions">
+        <el-button type="primary" @click="goToTaskManage">前往任务管理</el-button>
+      </div>
     </el-card>
   </div>
 </template>
@@ -127,6 +140,9 @@ export default {
     };
   },
   methods: {
+    goToTaskManage() {
+      this.$router.push('/satellite/renwu/shuxing');
+    },
     // 文件变化
     handleFileChange(file, fileList) {
       const validTypes = ['.xlsx', '.xls', '.csv', '.json'];
@@ -195,7 +211,8 @@ export default {
         this.fileReady = false;
       } catch (err) {
         if (loadingMessage) loadingMessage.close();
-        ElMessage.error('上传失败: ' + (err.message || '未知错误'));
+        const errorMessage = err.response?.data?.error || err.response?.data?.message || err.message || '未知错误';
+        ElMessage.error('上传失败: ' + errorMessage);
       }
     },
 
@@ -217,13 +234,20 @@ export default {
           };
           this.caseResult = {
             caseType: caseNames[type],
-            taskCount: res.data.count || '若干',
-            generateTime: new Date().toLocaleString()
+            id: res.data.id || '-',
+            taskCount: res.data.count || 1,
+            generateTime: new Date().toLocaleString(),
+            status: res.data.status || 'Success',
+            sensorType: res.data.sensorType || '-',
+            taskType: res.data.taskType || caseNames[type],
+            assignedSatelliteName: res.data.assignedSatelliteName || '',
+            targetLocation: res.data.targetLocation || res.data.locations || '-'
           };
           ElMessage.success(`${caseNames[type]}生成成功`);
         }
       } catch (err) {
-        ElMessage.error('用例生成失败');
+        const errorMessage = err.response?.data?.msg || err.response?.data?.error || err.response?.data?.message || err.message || '未知错误';
+        ElMessage.error('用例生成失败: ' + errorMessage);
       }
     }
   }
@@ -250,8 +274,19 @@ export default {
   margin-bottom: 16px;
 }
 
+.quick-actions {
+  margin-top: 12px;
+  text-align: right;
+}
+
 .task-uploader {
   width: 100%;
+}
+
+.result-actions {
+  margin-top: 16px;
+  display: flex;
+  justify-content: flex-end;
 }
 
 :deep(.task-uploader .el-upload) {

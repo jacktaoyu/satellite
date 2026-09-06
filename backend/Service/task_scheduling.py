@@ -213,7 +213,8 @@ class Satellite:
             orbit_height = semi_major_axis_km - earthradius_km
 
             return orbit_height
-        except:
+        except Exception as e:
+            print(f"skyfield 计算轨道高度失败，尝试 sgp4 回退: {e}")
             try:
                 # 尝试使用sgp4库计算
                 from sgp4.earth_gravity import wgs72
@@ -228,8 +229,9 @@ class Satellite:
                 orbit_height = semi_major_axis_km - 6378.137  # 减去地球平均半径
 
                 return orbit_height
-            except:
+            except Exception as e:
                 # 无法计算，返回默认值
+                print(f"sgp4 计算轨道高度也失败，返回默认轨道高度: {e}")
                 if self.sensor_type == 'optical':
                     return 600  # 典型光学卫星轨道高度
                 else:  # SAR
@@ -920,8 +922,9 @@ class Satellite:
 
             # 计算旋转角度(度)
             angle_deg = (r2 * r1.inv()).magnitude() * 180 / np.pi
-        except:
+        except Exception as e:
             # 简化计算
+            print(f"scipy 姿态角计算失败，使用简化计算: {e}")
             dot_product = np.abs(np.dot(q1, q2))
             angle_deg = 2 * np.arccos(min(1, dot_product)) * 180 / np.pi
 
@@ -1094,7 +1097,8 @@ class Satellite:
                 'height': subpoint.elevation.km,
                 'velocity': np.linalg.norm(geocentric.velocity.km_per_s)
             }
-        except:
+        except Exception as e:
+            print(f"skyfield 获取卫星状态失败，尝试 sgp4 回退: {e}")
             try:
                 # 尝试使用sgp4库计算
                 from sgp4.earth_gravity import wgs72
@@ -1777,7 +1781,7 @@ class SatelliteScheduler:
                     try:
                         if len(str(cell.value)) > max_length:
                             max_length = len(str(cell.value))
-                    except:
+                    except Exception:
                         pass
                 ws.column_dimensions[column_letter].width = max_length + 2
 
@@ -1863,7 +1867,7 @@ class SatelliteScheduler:
                     try:
                         if len(str(cell.value)) > max_length:
                             max_length = len(str(cell.value))
-                    except:
+                    except Exception:
                         pass
                 ws2.column_dimensions[column_letter].width = max_length + 2
 
@@ -1918,7 +1922,7 @@ class SatelliteScheduler:
                     try:
                         if len(str(cell.value)) > max_length:
                             max_length = len(str(cell.value))
-                    except:
+                    except Exception:
                         pass
                 ws3.column_dimensions[column_letter].width = max_length + 2
 
@@ -1991,7 +1995,7 @@ class SatelliteScheduler:
                     try:
                         if len(str(cell.value)) > max_length:
                             max_length = len(str(cell.value))
-                    except:
+                    except Exception:
                         pass
                 ws4.column_dimensions[column_letter].width = max_length + 2
         else:
@@ -2119,7 +2123,7 @@ class SatelliteScheduler:
                 try:
                     if len(str(cell.value)) > max_length:
                         max_length = len(str(cell.value))
-                except:
+                except Exception:
                     pass
             ws5.column_dimensions[column_letter].width = max_length + 5
 

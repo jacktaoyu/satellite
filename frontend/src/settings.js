@@ -1,5 +1,5 @@
 export default{
-  title: "卫星可视化系统"
+  title: "智能星簇协同运行验证系统"
 }
 
 //settings.js 里的 `title` 是一个 JavaScript 配置项，通常用于在 Vue 或其他前端框架中动态设置网页标题或显示系统名称。

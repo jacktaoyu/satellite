@@ -47,14 +47,8 @@ class SatelliteNetwork:
         self.pause_tasks = []  # 暂停任务队列
         self.results_buffer = Queue()  # 结果缓冲区
         self.is_connect = False  # 是否连接到客户端
-        self.clusters = []  # 存储星簇对象
-        self.orbits = set()  # 存储所有轨道
-        self.new_tasks = []  # 新任务队列
-        self.running_tasks = []  # 正在执行的任务队列
-        self.pause_tasks = []  # 暂停任务队列
-        self.results_buffer = Queue()  # 结果缓冲区
-        self.is_connect = False  # 是否连接到客户端
         self.ground_stations = []
+        self._pending_task_updates = {}  # 批量任务状态更新缓存 {task_id: status}
         for key, value in GROUND_STATION.items():
             self.ground_stations.append(GroundStation(key, value))
 
@@ -212,7 +206,6 @@ class SatelliteNetwork:
                     )
                     self.satellites[sat_name] = sat  # 将卫星添加到字典中
                     self.orbits.add(sat.orbit)  # 将轨道添加到集合中
-                    print(vars(sat))
 
                     # 英文转中文
                     sensor_type_map = {'optical': '光学', 'infrared': '红外', 'SAR': 'SAR'}
@@ -223,7 +216,6 @@ class SatelliteNetwork:
                         orbit_info_en[orbit] = {}
                     if sensor_type_cn not in orbit_info_en[orbit]:
                         orbit_info_en[orbit][sensor_type_cn] = set()
-                    print(resolution)
                     orbit_info_en[orbit][sensor_type_cn].add(resolution)
                     # # 将卫星数据写入Excel文件
                     # satellite_data = {
@@ -281,13 +273,15 @@ class SatelliteNetwork:
         for _ in range(max_retries):
             try:
                 self.server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                # 保持 0.0.0.0：SatClient.exe 实物客户端需要从局域网连接本 socket 服务，不能收窄为 127.0.0.1
+                # 鉴权：客户端连接后需先发送 {"token": ...} 握手消息（见 _verify_client_token）
                 self.server_socket.bind(('0.0.0.0', port))
-                time.sleep(5)
                 self.server_socket.listen(NODES)
                 print(f"成功绑定端口 {port}")
                 break
             except OSError:
                 print(f"端口 {port} 被占用，尝试下一个端口")
+                self.server_socket.close()  # 关闭旧socket，避免文件描述符泄漏
                 port += 1
         else:
             raise RuntimeError(f"无法找到可用端口，请检查 {port - max_retries} 到 {port - 1} 端口的占用情况")
@@ -295,6 +289,12 @@ class SatelliteNetwork:
         # self.server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         # self.server_socket.bind(('0.0.0.0', 9999))
         # self.server_socket.listen(NODES)
+
+        # socket 握手鉴权 token：环境变量 SOCKET_AUTH_TOKEN 可覆盖，未设置时使用开发默认值
+        self.auth_token = os.environ.get('SOCKET_AUTH_TOKEN')
+        if not self.auth_token:
+            self.auth_token = 'dev-satellite-token'
+            print("警告: 未设置环境变量 SOCKET_AUTH_TOKEN，socket 服务使用开发默认 token，生产环境请务必配置")
 
         # 客户端连接列表
         self.client_sockets = []
@@ -305,9 +305,14 @@ class SatelliteNetwork:
 
     def _start_socket_server(self):
         """启动 socket 服务器，等待NODES个客户端连接"""
+        # TODO: accept为永久阻塞调用，若无客户端连接主流程会一直阻塞在此处；
+        #  如需支持无客户端启动，可考虑 settimeout 循环 accept 或改为异步处理
         print("等待客户端连接...")
-        for _ in range(NODES):
+        while len(self.client_sockets) < NODES:
             client_socket, client_address = self.server_socket.accept()
+            if not self._verify_client_token(client_socket, client_address):
+                client_socket.close()
+                continue
             print(f"客户端 {client_address[0]}:{client_address[1]} 已连接")
             self.client_sockets.append(client_socket)
             # 为每个客户端创建接收线程
@@ -320,7 +325,21 @@ class SatelliteNetwork:
         print("所有客户端已连接")
         self.is_connect = True
 
-    def _send_tasks(self, satellite, task):
+    def _verify_client_token(self, client_socket, client_address):
+        """校验客户端第一条握手消息中的 token，失败返回 False"""
+        try:
+            client_socket.settimeout(10)  # 握手超时保护，避免永久阻塞 accept 循环
+            data = client_socket.recv(1024)
+            client_socket.settimeout(None)
+            msg = json.loads(data.decode().strip())
+            if msg.get('token') == self.auth_token:
+                return True
+            print(f"客户端 {client_address[0]}:{client_address[1]} 鉴权失败，关闭连接")
+        except Exception as e:
+            print(f"客户端 {client_address[0]}:{client_address[1]} 鉴权握手异常: {e}，关闭连接")
+        return False
+
+    def _send_tasks(self, satellite, task, execute_time=None):
         """发送任务到客户端"""
         if satellite.client >= len(self.client_sockets):
             print(
@@ -329,8 +348,7 @@ class SatelliteNetwork:
 
         msg = {
             "task_id": task.task_id,
-            "execute_time": task.execution_time
-            # "execute_time": 2
+            "execute_time": execute_time if execute_time is not None else task.execution_time
         }
         # 确保发送完整JSON数据，添加换行符作为消息分隔符
         data = json.dumps(msg) + "\n"
@@ -365,6 +383,36 @@ class SatelliteNetwork:
             except Exception as e:
                 print(f"接收结果出错: {str(e)}")
                 break
+        # 客户端断连清理
+        self._handle_client_disconnect(client_socket)
+
+    def _handle_client_disconnect(self, client_socket):
+        """客户端断连清理：关闭 socket、移出连接列表，并将其上“正在执行”的任务重置回等待执行"""
+        try:
+            client_socket.close()
+        except Exception:
+            pass
+        if client_socket not in self.client_sockets:
+            return
+        client_index = self.client_sockets.index(client_socket)
+        self.client_sockets.remove(client_socket)
+        print(f"客户端连接已断开并清理，剩余客户端数: {len(self.client_sockets)}")
+        # 重置该客户端上处于“正在执行”状态且未收到结果的任务，避免任务永久卡死
+        for task in self.running_tasks[:]:
+            satellite = self.satellites.get(task.assigned_satellite)
+            if satellite is None or satellite.client != client_index or task.status != "正在执行":
+                continue
+            self.running_tasks.remove(task)
+            task.status = "等待执行"
+            if satellite.running_task == task.task_id:
+                satellite.running_task = None
+                satellite.status = "FREE"
+            # 重新加入待执行队列（与 check_execute_tasks 共用同一把锁）
+            lock = self.operation_center.task_lock if self.operation_center else nullcontext()
+            with lock:
+                self.new_tasks.append(task)
+            self.update_task(task)
+            print(f"任务 {task.task_id} 因客户端断连重置为等待执行")
 
     def _create_cluster_in_db(self, cluster, orbit_str, payload_resolution_map):
         """在数据库中创建星簇记录"""
@@ -531,7 +579,7 @@ class SatelliteNetwork:
                 cluster_star_relation_model = ClusterStarRelation(sat_name=star.sat_name,
                                                                   cluster_id=cluster.cluster_id)
                 db.session.add(cluster_star_relation_model)
-                db.session.commit()
+            db.session.commit()  # 批量添加后一次提交
 
     def turn_map_to_str(self, my_map):
         """
@@ -638,7 +686,7 @@ class SatelliteNetwork:
                     relations = ClusterStarRelation.query.filter_by(cluster_id=cluster_id).all()
                     for relation in relations:
                         db.session.delete(relation)
-                        db.session.commit()
+                    db.session.commit()  # 批量删除后一次提交
                 break
         # 创建新的星簇
         cluster = Cluster(name)
@@ -685,6 +733,9 @@ class SatelliteNetwork:
         with self.app.app_context():
             # 更新数据库
             cluster_model = ClusterModel.query.filter_by(id=cluster_id).first()
+            if cluster_model is None:
+                print(f"更新星簇失败：数据库中不存在 cluster_id={cluster_id} 的星簇")
+                return False
             cluster_model.name = name
             # 将orbits列表转换为字符串
             cluster_model.orbits = str(orbits_list).strip('[]')
@@ -733,25 +784,29 @@ class SatelliteNetwork:
         收集结果
         :return:
         """
+        tasks_to_migrate = []  # 收集需要迁移到旧表的任务
+        tasks_to_remove = []   # 收集需要从 running_tasks 移除的任务
+
         while not self.results_buffer.empty():
             result = self.results_buffer.get()
             print(result)
-            # 根据 task_id 移除 running_tasks 中的任务
-            for task in self.running_tasks:
+            # 根据 task_id 查找 running_tasks 中的任务（遍历副本避免修改中遍历）
+            for task in self.running_tasks[:]:
                 if task.task_id == result["task_id"]:
-                    self.running_tasks.remove(task)
+                    tasks_to_remove.append(task)
                     if task.task_id == self.satellites[task.assigned_satellite].running_task:
                         self.satellites[task.assigned_satellite].running_task = None
                         self.satellites[task.assigned_satellite].status = "FREE"
-                    # self.satellites[task.assigned_satellite].tasks_len -= 1
 
                     x, y, z = self.satellites[task.assigned_satellite].position
                     # 计算高度
                     height = math.sqrt(x ** 2 + y ** 2 + z ** 2) - 6371
                     # 如果是子任务，需要判断其父任务是否还有其他子任务未完成
+                    locations = None
                     if task.parent_task_id:
                         main_task = self.net_tasks_buffer[task.parent_task_id]
-                        main_task.subtask_ids.remove(task.task_id)
+                        if task.task_id in main_task.subtask_ids:
+                            main_task.subtask_ids.remove(task.task_id)
                         # 如果主任务没有其他子任务，则将其移除
                         if len(main_task.subtask_ids) == 0:
                             task = self.net_tasks_buffer.pop(main_task.task_id)
@@ -759,132 +814,102 @@ class SatelliteNetwork:
                         else:
                             break
                     task.status = "Success"
-
-                    # 数据库操作需要在app上下文中执行
-                    with self.app.app_context():
-                        newtask_model = NewTaskModel.query.filter_by(id=task.task_id).first()
-                        if newtask_model:
-                            oldtask_model = OldTaskModel(
-                                id=newtask_model.id,
-                                task_name=newtask_model.task_name,
-                                priority=newtask_model.priority,
-                                is_emergency=newtask_model.is_emergency,
-                                sensor_type=newtask_model.sensor_type,
-                                task_type=newtask_model.task_type,
-                                resolution=newtask_model.resolution,
-                                start_time=newtask_model.start_time,
-                                end_time=newtask_model.end_time,
-                                appoint_time=newtask_model.appoint_time,
-                                cloud_thickness=newtask_model.cloud_thickness,
-                                target_location=newtask_model.target_location,
-                                assigned_satellite_name=newtask_model.assigned_satellite_name,
-                                status=task.status,
-                                friend_task_id=newtask_model.friend_task_id,
-                                is_photo=False,
-                                path=None,
-                                height=height,
-                                sub_length=len(locations) if task.subtasks else None,
-                                sub_locations=str(locations) if task.subtasks else None,
-                                comment=newtask_model.comment
-                            )
-                            db.session.delete(newtask_model)
-                            db.session.add(oldtask_model)
-                            db.session.commit()
+                    tasks_to_migrate.append({
+                        'task': task,
+                        'height': height,
+                        'locations': locations
+                    })
                     break
+
+        # 批量从 running_tasks 移除
+        for task in tasks_to_remove:
+            if task in self.running_tasks:
+                self.running_tasks.remove(task)
+
+        # 批量数据库操作：一次 app_context，一次 commit
+        if tasks_to_migrate:
+            with self.app.app_context():
+                for item in tasks_to_migrate:
+                    task = item['task']
+                    height = item['height']
+                    locations = item['locations']
+                    newtask_model = NewTaskModel.query.filter_by(id=task.task_id).first()
+                    if newtask_model:
+                        oldtask_model = OldTaskModel(
+                            id=newtask_model.id,
+                            task_name=newtask_model.task_name,
+                            priority=newtask_model.priority,
+                            is_emergency=newtask_model.is_emergency,
+                            sensor_type=newtask_model.sensor_type,
+                            task_type=newtask_model.task_type,
+                            resolution=newtask_model.resolution,
+                            start_time=newtask_model.start_time,
+                            end_time=newtask_model.end_time,
+                            appoint_time=newtask_model.appoint_time,
+                            cloud_thickness=newtask_model.cloud_thickness,
+                            target_location=newtask_model.target_location,
+                            assigned_satellite_name=newtask_model.assigned_satellite_name,
+                            status=task.status,
+                            friend_task_id=newtask_model.friend_task_id,
+                            is_photo=False,
+                            path=None,
+                            height=height,
+                            sub_length=len(locations) if task.subtasks else None,
+                            sub_locations=str(locations) if task.subtasks else None,
+                            comment=newtask_model.comment
+                        )
+                        db.session.delete(newtask_model)
+                        db.session.add(oldtask_model)
+                db.session.commit()
 
     def check_execute_tasks(self, now_time, time_multiple):
         """
         检查所有卫星的任务队列并执行任务
         """
-        if self.new_tasks and len(self.client_sockets) > 0:
-            # 创建任务列表的副本进行遍历
-            tasks_to_process = self.new_tasks.copy()
-            i = 0
-            while i < len(tasks_to_process):
-                task = tasks_to_process[i]
-                if task not in self.new_tasks:  # 如果任务已经被移除，跳过
-                    i += 1
-                    continue
-                # 判断是否到达任务的执行时间
-                # 如果还未到达任务的开始时间，跳过
-                if (task.earliest_start_time.replace(
-                        tzinfo=None) - now_time).total_seconds() > INTER_VAL_TIME * time_multiple:
-                    i += 1
-                    continue
-                #     如果当前时间已经超过任务的开始时间，跳过并删除任务
-                # elif (now_time - task.earliest_start_time.replace(tzinfo=None)) > INTER_VAL_TIME * time_multiple:
-                #     i += 1
-                #     if not task.parent_task_id:
-                #         self.new_tasks.remove(task)
-                #         self.delete_and_add_task(task.task_id)
-                #     else:
-                #         main_task = self.net_tasks_buffer[task.parent_task_id]
-                #         for subtask in main_task.subtasks:
-                #             self.new_tasks.remove(subtask)
-                #         del self.net_tasks_buffer[task.parent_task_id]
-                #         self.delete_and_add_task(main_task.task_id)
-                #     continue
-                satellite = self.satellites[task.assigned_satellite]
-                # if satellite.status == "FREE" and satellite.is_available:
-                if satellite.is_available:
-                    # 执行任务，将任务从新任务列表中删除
-                    self.running_tasks.append(task)
-                    self.new_tasks.remove(task)
-                    # 执行时间除以加速倍数
-                    task.execution_time /= time_multiple
-                    # 发送到卫星实物节点执行
-                    self._send_tasks(satellite, task)
-                    satellite.status = "RUNNING"
-                    satellite.battery = task.battery_after_task
-                    # 更新卫星状态
-                    satellite.storage -= task.current_storage  # 更新存储
-                    satellite.side_swing_angle = task.target_attitude[1]  # 更新角度
-                    satellite.pitch_angle = task.target_attitude[2]  # 更新姿态
-                    satellite.tasks_len -= 1  # 更新任务数量
+        # 与 Flask 请求线程（pause_task/start_task/delete_task）和 OCC 线程（distribute_tasks/replan）
+        # 共用同一把锁（OCC 的 task_lock），保护共享的 new_tasks 列表
+        lock = self.operation_center.task_lock if self.operation_center else nullcontext()
+        with lock:
+            if not (self.new_tasks and len(self.client_sockets) > 0):
+                return
+            # 锁内拍快照，遍历快照执行（循环体内有 socket 发送等耗时操作，避免长时间持锁）
+            tasks_snapshot = list(self.new_tasks)
+        executed_tasks = []
+        for task in tasks_snapshot:
+            # 判断是否到达任务的执行时间
+            if (task.earliest_start_time.replace(
+                    tzinfo=None) - now_time).total_seconds() > INTER_VAL_TIME * time_multiple:
+                continue
+            satellite = self.satellites[task.assigned_satellite]
+            if satellite.is_available:
+                # 执行任务
+                self.running_tasks.append(task)
+                executed_tasks.append(task)
+                # 执行时间除以加速倍数（局部变量计算，不修改 task 对象本身，避免断连重发后重复除）
+                execute_time = task.execution_time / time_multiple
+                # 发送到卫星实物节点执行
+                self._send_tasks(satellite, task, execute_time)
+                satellite.status = "RUNNING"
+                satellite.battery = task.battery_after_task
+                # 更新卫星状态
+                satellite.storage -= task.current_storage  # 更新存储
+                satellite.side_swing_angle = task.target_attitude[1]  # 更新角度
+                satellite.pitch_angle = task.target_attitude[2]  # 更新姿态
+                satellite.tasks_len -= 1  # 更新任务数量
 
-                    task.status = "正在执行"
-                    if task.parent_task_id and task.parent_task_id in self.net_tasks_buffer:
-                        self.net_tasks_buffer[task.parent_task_id].status = "正在执行"
-                        satellite.running_task = task.task_id  # 更新任务ID
-                        self.update_task(self.net_tasks_buffer[task.parent_task_id])  # 更新任务
-                    else:
-                        satellite.running_task = task.task_id  # 更新任务ID
-                        self.update_task(task)
-                #     if task.friend_task is not None:
-                #         i += 1
-                #         continue
-                #
-                #     # 检查是否有相同的任务
-                #     for j in range(i + 1, len(tasks_to_process)):
-                #         friend_task = tasks_to_process[j]
-                #         if friend_task not in self.new_tasks:  # 如果任务已经被移除，跳过
-                #             continue
-                #         if (friend_task.sensor_type == task.sensor_type and
-                #                 friend_task.earliest_start_time == task.earliest_start_time and
-                #                 friend_task.latest_end_time == task.latest_end_time and
-                #                 geodesic(friend_task.target_location, task.target_location).kilometers <= 1):
-                #             # 合并任务后，双向映射
-                #             task.friend_task = friend_task
-                #             # 更新任务状态
-                #             if not task.parent_task_id:
-                #                 self.update_friend_task(task)
-                #             friend_task.friend_task = task
-                #
-                #             satellite.battery = friend_task.battery_after_task
-                #             satellite.storage -= friend_task.current_storage
-                #             friend_task.status = "正在执行"
-                #             self.running_tasks.append(friend_task)
-                #             self.new_tasks.remove(friend_task)
-                #
-                #             if friend_task.parent_task_id:
-                #                 self.net_tasks_buffer[friend_task.parent_task_id].status = "正在执行"
-                #                 self.update_task(self.net_tasks_buffer[friend_task.parent_task_id])
-                #             else:
-                #                 satellite.running_task = friend_task.task_id
-                #                 self.update_task(friend_task)
-                #                 self.update_friend_task(friend_task)
-                #             break
-                i += 1
+                task.status = "正在执行"
+                if task.parent_task_id and task.parent_task_id in self.net_tasks_buffer:
+                    self.net_tasks_buffer[task.parent_task_id].status = "正在执行"
+                    satellite.running_task = task.task_id  # 更新任务ID
+                    self.update_task(self.net_tasks_buffer[task.parent_task_id], batch=True)  # 批量更新
+                else:
+                    satellite.running_task = task.task_id  # 更新任务ID
+                    self.update_task(task, batch=True)
+        # 批量移除已执行任务，避免循环内多次 O(n) remove
+        if executed_tasks:
+            executed_set = set(executed_tasks)
+            with lock:  # 重建 new_tasks 需与写线程互斥
+                self.new_tasks = [t for t in self.new_tasks if t not in executed_set]
 
     # 从新任务模型中删除任务，并将其放到旧表中
     def delete_and_add_task(self, task_id):
@@ -918,27 +943,33 @@ class SatelliteNetwork:
                 db.session.add(oldtask_model)
                 db.session.commit()
 
-    def update_task(self, task):
+    def update_task(self, task, batch=False):
         """
         更新任务状态
-        :param task:任务对象
+        :param task: 任务对象
+        :param batch: 若为True，仅将变更加入待处理队列，不立即commit
         :return:
         """
+        if batch:
+            self._pending_task_updates[task.task_id] = task.status
+            return
         with self.app.app_context():
             newtask_model = NewTaskModel.query.filter_by(id=task.task_id).first()
-            newtask_model.status = task.status
-            db.session.commit()
+            if newtask_model:
+                newtask_model.status = task.status
+                db.session.commit()
 
-    def update_friend_task(self, task):
+    def flush_task_updates(self):
         """
-        更新朋友任务状态
-        :param task:任务对象
-        :return:
+        批量刷新待处理的任务状态更新到数据库
         """
+        if not self._pending_task_updates:
+            return
         with self.app.app_context():
-            new_task_model = NewTaskModel.query.filter_by(id=task.task_id).first()
-            new_task_model.friend_task_id = task.friend_task.task_id
+            for task_id, status in self._pending_task_updates.items():
+                NewTaskModel.query.filter_by(id=task_id).update({"status": status})
             db.session.commit()
+            self._pending_task_updates.clear()
 
     def pause_task(self, task_id):
         """
@@ -946,25 +977,29 @@ class SatelliteNetwork:
         :param task_id: 任务ID
         :return:
         """
-        if task_id in self.net_tasks_buffer:
-            main_task = self.net_tasks_buffer[task_id]
-            if main_task.status == '正在执行':
-                # 正在执行的任务无法暂停
-                return False
-            main_task.status = '暂停'
-            for task in main_task.subtasks:
-                self.new_tasks.remove(task)
-                self.pause_tasks.append(task)
-            self.update_task(main_task)
-            return True
-        else:
-            for new_task in self.new_tasks:
-                if new_task.task_id == task_id and new_task.status == '等待执行':
-                    self.pause_tasks.append(new_task)
-                    self.new_tasks.remove(new_task)
-                    new_task.status = '暂停'
-                    self.update_task(new_task)
-                    return True
+        # 与网络线程 check_execute_tasks 共用同一把锁（OCC 的 task_lock），保护 new_tasks/pause_tasks/net_tasks_buffer
+        lock = self.operation_center.task_lock if self.operation_center else nullcontext()
+        with lock:
+            if task_id in self.net_tasks_buffer:
+                main_task = self.net_tasks_buffer[task_id]
+                if main_task.status == '正在执行':
+                    # 正在执行的任务无法暂停
+                    return False
+                main_task.status = '暂停'
+                for task in main_task.subtasks:
+                    if task in self.new_tasks:
+                        self.new_tasks.remove(task)
+                    self.pause_tasks.append(task)
+                self.update_task(main_task)
+                return True
+            else:
+                for new_task in self.new_tasks:
+                    if new_task.task_id == task_id and new_task.status == '等待执行':
+                        self.pause_tasks.append(new_task)
+                        self.new_tasks.remove(new_task)
+                        new_task.status = '暂停'
+                        self.update_task(new_task)
+                        return True
 
     def start_task(self, task_id):
         """
@@ -972,24 +1007,28 @@ class SatelliteNetwork:
         :param task_id: 任务ID
         :return:
         """
-        if task_id in self.net_tasks_buffer:
-            main_task = self.net_tasks_buffer[task_id]
-            if main_task.status == '暂停':
-                # 暂停的任务可以继续执行
-                main_task.status = '等待执行'
-                for task in main_task.subtasks:
-                    self.pause_tasks.remove(task)
-                    self.new_tasks.append(task)
-                self.update_task(main_task)
-                return True
-        else:
-            for task in self.pause_tasks:
-                if task.task_id == task_id:
-                    self.pause_tasks.remove(task)
-                    task.status = '等待执行'
-                    self.update_task(task)
-                    self.new_tasks.append(task)
+        # 与网络线程 check_execute_tasks 共用同一把锁（OCC 的 task_lock），保护 new_tasks/pause_tasks/net_tasks_buffer
+        lock = self.operation_center.task_lock if self.operation_center else nullcontext()
+        with lock:
+            if task_id in self.net_tasks_buffer:
+                main_task = self.net_tasks_buffer[task_id]
+                if main_task.status == '暂停':
+                    # 暂停的任务可以继续执行
+                    main_task.status = '等待执行'
+                    for task in main_task.subtasks:
+                        if task in self.pause_tasks:
+                            self.pause_tasks.remove(task)
+                        self.new_tasks.append(task)
+                    self.update_task(main_task)
                     return True
+            else:
+                for task in self.pause_tasks:
+                    if task.task_id == task_id:
+                        self.pause_tasks.remove(task)
+                        task.status = '等待执行'
+                        self.update_task(task)
+                        self.new_tasks.append(task)
+                        return True
 
     def run(self):
         """
@@ -1004,13 +1043,21 @@ class SatelliteNetwork:
             self._start_socket_server()
             # 主循环
             while True:  # 更新网络状态和收集结果
-                print("卫星网络的当前时间：", self.now_time)
-                # 检查所有的卫星，执行任务
-                self.check_execute_tasks(self.now_time, self.time_multiple)
-                self.collect_results()
-                if self.is_planed:
-                    self.update_net_state(self.now_time, self.time_multiple)
-                print("卫星网络中是否有任务：", self.new_tasks != [])
-                # self.collect_results(data_center_queue)
+                try:
+                    print("卫星网络的当前时间：", self.now_time)
+                    # 检查所有的卫星，执行任务
+                    self.check_execute_tasks(self.now_time, self.time_multiple)
+                    self.collect_results()
+                    if self.is_planed:
+                        self.update_net_state(self.now_time, self.time_multiple)
+                    print("卫星网络中是否有任务：", self.new_tasks != [])
+                    # self.collect_results(data_center_queue)
+                    # 批量刷新任务状态更新
+                    self.flush_task_updates()
+                except Exception as e:
+                    # 后台主循环异常兜底：打印异常并继续，避免线程退出
+                    import traceback
+                    print(f"卫星网络主循环发生异常: {e}")
+                    print(traceback.format_exc())
                 # 更新时间步
                 time.sleep(INTER_VAL_TIME)  # 控制更新频率

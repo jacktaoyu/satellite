@@ -1,0 +1,779 @@
+/* =========================================================================
+ * dark-tech.css —— 管理页深色 HUD 科技风全局覆盖样式
+ * 参考 Satellite_network.vue 的 HUD 语言：
+ *   面板  rgba(8, 20, 46, 0.78) + 1px 青色描边 + 青色发光
+ *   强调  #00f0ff / #00dcff；文字 #cfe8ff / #e8f6ff；次要 #9fc6e8 / #68809a
+ * 作用域规则：
+ *   - 页面内组件一律以 .tech-main 开头（main.vue 的 el-main 容器），不影响 portal/login
+ *   - el-dialog / el-message-box / 下拉浮层 teleport 到 body，做全局覆盖；
+ *     portal/login 不使用这些组件（login 的 el-select 下拉为暗色，与登录页暗色风格一致）
+ * ========================================================================= */
+
+/* ---------- 基础变量覆盖（页面内 + 弹层容器共享） ---------- */
+.tech-main,
+.el-dialog,
+.el-message-box,
+.el-picker-panel,
+.el-select-dropdown,
+.el-dropdown__popper.el-popper,
+.el-popper.is-dark,
+.el-picker__popper.el-popper {
+  --el-bg-color: rgba(8, 20, 46, 0.78);
+  --el-bg-color-overlay: #0b1c3a;
+  --el-text-color-primary: #e8f6ff;
+  --el-text-color-regular: #cfe8ff;
+  --el-text-color-secondary: #9fc6e8;
+  --el-text-color-placeholder: #68809a;
+  --el-text-color-disabled: #4d657f;
+  --el-border-color: rgba(0, 220, 255, 0.35);
+  --el-border-color-light: rgba(0, 220, 255, 0.22);
+  --el-border-color-lighter: rgba(0, 220, 255, 0.15);
+  --el-border-color-extra-light: rgba(0, 220, 255, 0.1);
+  --el-border-color-hover: #00dcff;
+  --el-fill-color: rgba(0, 220, 255, 0.1);
+  --el-fill-color-light: rgba(0, 220, 255, 0.07);
+  --el-fill-color-lighter: rgba(0, 220, 255, 0.05);
+  --el-fill-color-extra-light: rgba(0, 220, 255, 0.03);
+  --el-fill-color-blank: transparent;
+  --el-disabled-bg-color: rgba(120, 160, 200, 0.08);
+  --el-disabled-text-color: #4d657f;
+  --el-disabled-border-color: rgba(0, 220, 255, 0.15);
+  --el-color-primary: #00c8f0;
+  --el-color-primary-light-3: #4adcf6;
+  --el-color-primary-light-5: #7fe8f9;
+  --el-color-primary-light-7: #0e4a63;
+  --el-color-primary-light-8: #0c3a50;
+  --el-color-primary-light-9: rgba(0, 220, 255, 0.12);
+  --el-color-primary-dark-2: #00a0c6;
+  --el-color-success-light-9: rgba(103, 194, 58, 0.14);
+  --el-color-warning-light-9: rgba(230, 162, 60, 0.14);
+  --el-color-danger-light-9: rgba(245, 108, 108, 0.14);
+  --el-color-error-light-9: rgba(245, 108, 108, 0.14);
+  --el-color-info-light-9: rgba(140, 170, 200, 0.14);
+  --el-box-shadow-light: 0 0 12px rgba(0, 220, 255, 0.15);
+  --el-mask-color: rgba(3, 8, 24, 0.7);
+}
+
+/* ---------- el-card：HUD 面板 ---------- */
+.tech-main .el-card {
+  --el-card-bg-color: rgba(8, 20, 46, 0.78);
+  --el-card-border-color: rgba(0, 220, 255, 0.35);
+  --el-card-border-radius: 4px;
+  color: #cfe8ff;
+  box-shadow: 0 0 12px rgba(0, 220, 255, 0.15), inset 0 0 20px rgba(0, 100, 200, 0.08);
+  backdrop-filter: blur(4px);
+}
+.tech-main .el-card__header {
+  border-bottom: 1px solid rgba(0, 220, 255, 0.25);
+  background: linear-gradient(90deg, rgba(0, 220, 255, 0.12), transparent);
+  color: #00dcff;
+  font-weight: 600;
+  letter-spacing: 1px;
+}
+/* 卡片标题左侧发光竖条 */
+.tech-main .el-card__header .card-header,
+.tech-main .el-card__header .card-header-inner,
+.tech-main .el-card__header .chart-title,
+.tech-main .el-card__header .result-title,
+.tech-main .el-card__header .history-title {
+  position: relative;
+  padding-left: 11px;
+  color: #00dcff;
+}
+.tech-main .el-card__header .card-header::before,
+.tech-main .el-card__header .card-header-inner::before,
+.tech-main .el-card__header .chart-title::before,
+.tech-main .el-card__header .result-title::before,
+.tech-main .el-card__header .history-title::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 3px;
+  height: 12px;
+  background: #00f0ff;
+  box-shadow: 0 0 6px rgba(0, 240, 255, 0.8);
+}
+
+/* ---------- el-table ---------- */
+.tech-main .el-table {
+  --el-table-bg-color: transparent;
+  --el-table-tr-bg-color: transparent;
+  --el-table-header-bg-color: rgba(0, 220, 255, 0.08);
+  --el-table-border-color: rgba(0, 220, 255, 0.18);
+  --el-table-text-color: #cfe8ff;
+  --el-table-header-text-color: #00dcff;
+  --el-table-row-hover-bg-color: rgba(0, 220, 255, 0.12);
+  --el-table-current-row-bg-color: rgba(0, 220, 255, 0.14);
+  --el-table-fixed-box-shadow: 0 0 10px rgba(0, 220, 255, 0.25);
+  --el-table-expanded-cell-bg-color: rgba(6, 18, 42, 0.6);
+  color: #cfe8ff;
+}
+.tech-main .el-table th.el-table__cell {
+  font-weight: 600;
+  letter-spacing: 1px;
+}
+.tech-main .el-table .el-table__cell {
+  border-bottom-color: rgba(0, 220, 255, 0.12);
+}
+.tech-main .el-table--border .el-table__cell,
+.tech-main .el-table--border th.el-table__cell {
+  border-right-color: rgba(0, 220, 255, 0.12);
+}
+.tech-main .el-table__empty-text {
+  color: #68809a;
+  letter-spacing: 1px;
+}
+.tech-main .el-table .cell {
+  color: inherit;
+}
+/* 固定列（fixed）使用不透明底色，防止表格横向滚动时固定列与下层滚动的单元格叠影 */
+.tech-main .el-table .el-table__cell.el-table-fixed-column--left,
+.tech-main .el-table .el-table__cell.el-table-fixed-column--right {
+  background: #0b1c3a;
+}
+.tech-main .el-table th.el-table__cell.el-table-fixed-column--left,
+.tech-main .el-table th.el-table__cell.el-table-fixed-column--right {
+  background: #0f2545;
+}
+/* 斑马纹行的固定列同样需要不透明底色（提高选择器优先级覆盖条纹背景） */
+.tech-main .el-table--striped .el-table__body tr.el-table__row--striped td.el-table__cell.el-table-fixed-column--left,
+.tech-main .el-table--striped .el-table__body tr.el-table__row--striped td.el-table__cell.el-table-fixed-column--right {
+  background: #0e2242;
+}
+/* 悬停行的固定列底色 */
+.tech-main .el-table .el-table__body tr:hover > td.el-table__cell.el-table-fixed-column--left,
+.tech-main .el-table .el-table__body tr:hover > td.el-table__cell.el-table-fixed-column--right {
+  background: #122a4e;
+}
+
+/* ---------- el-pagination ---------- */
+.tech-main .el-pagination {
+  --el-pagination-bg-color: rgba(0, 220, 255, 0.06);
+  --el-pagination-text-color: #cfe8ff;
+  --el-pagination-button-color: #cfe8ff;
+  --el-pagination-button-bg-color: rgba(0, 220, 255, 0.06);
+  --el-pagination-button-disabled-bg-color: transparent;
+  --el-pagination-hover-color: #00f0ff;
+  color: #9fc6e8;
+}
+.tech-main .el-pagination.is-background .el-pager li {
+  background-color: rgba(0, 220, 255, 0.06);
+  border: 1px solid rgba(0, 220, 255, 0.2);
+  color: #cfe8ff;
+}
+.tech-main .el-pagination.is-background .el-pager li.is-active {
+  background: linear-gradient(90deg, #0090c0, #00f0ff);
+  color: #04253a;
+  font-weight: 700;
+}
+.tech-main .el-pagination.is-background .btn-prev,
+.tech-main .el-pagination.is-background .btn-next {
+  background-color: rgba(0, 220, 255, 0.06);
+  border: 1px solid rgba(0, 220, 255, 0.2);
+  color: #cfe8ff;
+}
+.tech-main .el-pagination .el-input__wrapper {
+  background: rgba(0, 220, 255, 0.06);
+  box-shadow: 0 0 0 1px rgba(0, 220, 255, 0.25) inset;
+}
+
+/* ---------- el-button ---------- */
+.tech-main .el-button,
+.el-dialog .el-button,
+.el-message-box .el-button {
+  --el-button-bg-color: rgba(0, 220, 255, 0.06);
+  --el-button-border-color: rgba(0, 220, 255, 0.35);
+  --el-button-text-color: #cfe8ff;
+  --el-button-hover-text-color: #00f0ff;
+  --el-button-hover-bg-color: rgba(0, 220, 255, 0.14);
+  --el-button-hover-border-color: #00dcff;
+  --el-button-active-bg-color: rgba(0, 220, 255, 0.2);
+}
+.tech-main .el-button--primary,
+.el-dialog .el-button--primary,
+.el-message-box .el-button--primary {
+  --el-button-bg-color: transparent;
+  --el-button-border-color: transparent;
+  --el-button-text-color: #04253a;
+  --el-button-hover-text-color: #04253a;
+  background: linear-gradient(90deg, #0090c0, #00f0ff);
+  border: none;
+  font-weight: 600;
+  text-shadow: none;
+  box-shadow: 0 0 10px rgba(0, 220, 255, 0.35);
+}
+.tech-main .el-button--primary:hover,
+.el-dialog .el-button--primary:hover,
+.el-message-box .el-button--primary:hover {
+  background: linear-gradient(90deg, #00a8d8, #33f4ff);
+}
+.tech-main .el-button--primary.is-plain,
+.tech-main .el-button--primary.is-link {
+  background: rgba(0, 220, 255, 0.08);
+  color: #00dcff;
+  border: 1px solid rgba(0, 220, 255, 0.35);
+  box-shadow: none;
+}
+.tech-main .el-button--success {
+  --el-button-bg-color: rgba(103, 194, 58, 0.15);
+  --el-button-border-color: rgba(103, 194, 58, 0.5);
+  --el-button-text-color: #8ee06a;
+}
+.tech-main .el-button--warning {
+  --el-button-bg-color: rgba(230, 162, 60, 0.15);
+  --el-button-border-color: rgba(230, 162, 60, 0.5);
+  --el-button-text-color: #f0b95c;
+}
+.tech-main .el-button--danger {
+  --el-button-bg-color: rgba(245, 108, 108, 0.15);
+  --el-button-border-color: rgba(245, 108, 108, 0.5);
+  --el-button-text-color: #f58f8f;
+}
+/* 链接按钮保持浅色文字 */
+.tech-main .el-button.is-link,
+.tech-main .el-button--primary.is-link,
+.el-dialog .el-button.is-link {
+  background: transparent;
+  border: none;
+  box-shadow: none;
+}
+
+/* ---------- el-input / el-select / el-input-number ---------- */
+/* 输入框变量定义在容器级，确保 el-date-editor（非 .el-input 根节点）也能继承 */
+.tech-main,
+.el-dialog,
+.el-message-box,
+.el-picker-panel {
+  --el-input-bg-color: rgba(4, 14, 34, 0.6);
+  --el-input-border-color: rgba(0, 220, 255, 0.3);
+  --el-input-text-color: #e8f6ff;
+  --el-input-hover-border-color: #00dcff;
+  --el-input-focus-border-color: #00f0ff;
+  --el-input-icon-color: #9fc6e8;
+}
+.tech-main .el-select__wrapper,
+.el-dialog .el-select__wrapper,
+.el-picker-panel .el-select__wrapper {
+  background-color: rgba(4, 14, 34, 0.6);
+  box-shadow: 0 0 0 1px rgba(0, 220, 255, 0.3) inset;
+  color: #e8f6ff;
+}
+.tech-main .el-select__wrapper.is-focused,
+.el-dialog .el-select__wrapper.is-focused {
+  box-shadow: 0 0 0 1px #00f0ff inset, 0 0 8px rgba(0, 220, 255, 0.35);
+}
+.tech-main .el-select__placeholder,
+.el-dialog .el-select__placeholder {
+  color: #68809a;
+}
+.tech-main .el-select__selected-item,
+.el-dialog .el-select__selected-item {
+  color: #e8f6ff;
+}
+.tech-main .el-input-number .el-input-number__decrease,
+.tech-main .el-input-number .el-input-number__increase,
+.el-dialog .el-input-number .el-input-number__decrease,
+.el-dialog .el-input-number .el-input-number__increase {
+  background: rgba(0, 220, 255, 0.08);
+  color: #9fc6e8;
+  border-color: rgba(0, 220, 255, 0.25);
+}
+.tech-main .el-date-editor .el-range-separator,
+.el-dialog .el-date-editor .el-range-separator {
+  color: #9fc6e8;
+}
+
+/* ---------- el-tabs ---------- */
+.tech-main .el-tabs__item {
+  color: #9fc6e8;
+}
+.tech-main .el-tabs__item.is-active {
+  color: #00dcff;
+  text-shadow: 0 0 8px rgba(0, 220, 255, 0.5);
+}
+.tech-main .el-tabs__item:hover {
+  color: #00f0ff;
+}
+.tech-main .el-tabs__active-bar {
+  background-color: #00f0ff;
+  box-shadow: 0 0 8px rgba(0, 240, 255, 0.8);
+}
+.tech-main .el-tabs__nav-wrap::after {
+  background-color: rgba(0, 220, 255, 0.18);
+  height: 1px;
+}
+
+/* ---------- el-form / el-descriptions / el-divider ---------- */
+.tech-main .el-form-item__label,
+.el-dialog .el-form-item__label {
+  color: #9fc6e8;
+}
+.tech-main .el-descriptions,
+.el-dialog .el-descriptions {
+  --el-descriptions-item-bordered-label-background: rgba(0, 220, 255, 0.07);
+  --el-descriptions-table-border: 1px solid rgba(0, 220, 255, 0.18);
+}
+.tech-main .el-descriptions__label,
+.el-dialog .el-descriptions__label {
+  color: #9fc6e8 !important;
+}
+.tech-main .el-descriptions__content,
+.el-dialog .el-descriptions__content {
+  color: #e8f6ff !important;
+}
+.tech-main .el-divider,
+.el-dialog .el-divider {
+  border-top-color: rgba(0, 220, 255, 0.18);
+}
+.tech-main .el-divider__text,
+.el-dialog .el-divider__text {
+  background: rgba(6, 18, 42, 0.9);
+  color: #00dcff;
+  letter-spacing: 1px;
+}
+
+/* ---------- el-tag ---------- */
+.tech-main .el-tag,
+.el-dialog .el-tag,
+.el-drawer .el-tag {
+  background-color: rgba(0, 220, 255, 0.08);
+  border-color: rgba(0, 220, 255, 0.4);
+  color: #7fe8f9;
+}
+.tech-main .el-tag--success,
+.el-dialog .el-tag--success {
+  background-color: rgba(103, 194, 58, 0.12);
+  border-color: rgba(103, 194, 58, 0.5);
+  color: #8ee06a;
+}
+.tech-main .el-tag--warning,
+.el-dialog .el-tag--warning {
+  background-color: rgba(230, 162, 60, 0.12);
+  border-color: rgba(230, 162, 60, 0.5);
+  color: #f0b95c;
+}
+.tech-main .el-tag--danger,
+.el-dialog .el-tag--danger {
+  background-color: rgba(245, 108, 108, 0.12);
+  border-color: rgba(245, 108, 108, 0.5);
+  color: #f58f8f;
+}
+.tech-main .el-tag--info,
+.el-dialog .el-tag--info {
+  background-color: rgba(140, 170, 200, 0.12);
+  border-color: rgba(140, 170, 200, 0.4);
+  color: #9fc6e8;
+}
+.tech-main .el-tag--primary,
+.el-dialog .el-tag--primary {
+  background-color: rgba(0, 220, 255, 0.12);
+  border-color: rgba(0, 220, 255, 0.5);
+  color: #00dcff;
+}
+
+/* ---------- el-switch / el-radio / el-checkbox ---------- */
+.tech-main .el-switch {
+  --el-switch-off-color: rgba(120, 160, 200, 0.25);
+  --el-switch-on-color: #00a0c6;
+}
+.tech-main .el-switch__label {
+  color: #9fc6e8;
+}
+.tech-main .el-switch__label.is-active {
+  color: #00dcff;
+}
+.tech-main .el-radio,
+.tech-main .el-checkbox,
+.el-dialog .el-radio {
+  color: #cfe8ff;
+}
+.tech-main .el-radio-button__inner,
+.el-dialog .el-radio-button__inner {
+  background: rgba(0, 220, 255, 0.05);
+  border-color: rgba(0, 220, 255, 0.25);
+  color: #9fc6e8;
+}
+.tech-main .el-radio-button__original-radio:checked + .el-radio-button__inner,
+.el-dialog .el-radio-button__original-radio:checked + .el-radio-button__inner {
+  background: linear-gradient(90deg, #0090c0, #00f0ff);
+  border-color: transparent;
+  color: #04253a;
+  font-weight: 600;
+  box-shadow: 0 0 8px rgba(0, 220, 255, 0.35);
+}
+.tech-main .el-radio__inner,
+.tech-main .el-checkbox__inner,
+.el-dialog .el-radio__inner {
+  background: rgba(4, 14, 34, 0.6);
+  border-color: rgba(0, 220, 255, 0.35);
+}
+
+/* ---------- el-upload ---------- */
+.tech-main .el-upload-dragger {
+  background: rgba(4, 14, 34, 0.5) !important;
+  border: 1px dashed rgba(0, 220, 255, 0.35) !important;
+}
+.tech-main .el-upload-dragger:hover {
+  border-color: #00f0ff !important;
+  background: rgba(0, 220, 255, 0.08) !important;
+}
+.tech-main .el-upload-list__item {
+  color: #cfe8ff;
+}
+.tech-main .el-upload-list__item:hover {
+  background: rgba(0, 220, 255, 0.08);
+}
+
+/* ---------- el-alert ---------- */
+.tech-main .el-alert--info {
+  --el-alert-bg-color: rgba(0, 220, 255, 0.06);
+  background: rgba(0, 220, 255, 0.06);
+  border: 1px solid rgba(0, 220, 255, 0.2);
+}
+.tech-main .el-alert__title,
+.tech-main .el-alert__content,
+.tech-main .el-alert .field-list {
+  color: #9fc6e8;
+}
+
+/* ---------- el-progress ---------- */
+.tech-main .el-progress__text {
+  color: #cfe8ff;
+}
+
+/* ---------- 全局弹层：el-dialog / el-message-box（teleport 到 body） ---------- */
+.el-dialog {
+  --el-dialog-bg-color: rgba(6, 18, 42, 0.97);
+  --el-dialog-title-font-size: 16px;
+  background: rgba(6, 18, 42, 0.97);
+  border: 1px solid rgba(0, 220, 255, 0.35);
+  border-radius: 6px;
+  box-shadow: 0 0 24px rgba(0, 220, 255, 0.25);
+  backdrop-filter: blur(6px);
+  color: #cfe8ff;
+}
+.el-dialog__title {
+  color: #00dcff;
+  font-weight: 600;
+  letter-spacing: 1px;
+}
+.el-dialog__header {
+  border-bottom: 1px solid rgba(0, 220, 255, 0.2);
+  padding-bottom: 14px;
+  background: linear-gradient(90deg, rgba(0, 220, 255, 0.1), transparent);
+}
+.el-dialog__headerbtn .el-dialog__close {
+  color: #9fc6e8;
+}
+.el-dialog__headerbtn:hover .el-dialog__close {
+  color: #00f0ff;
+}
+.el-message-box {
+  --el-messagebox-title-color: #00dcff;
+  --el-messagebox-content-color: #cfe8ff;
+  background: rgba(6, 18, 42, 0.97);
+  border: 1px solid rgba(0, 220, 255, 0.35);
+  box-shadow: 0 0 24px rgba(0, 220, 255, 0.25);
+}
+.el-message-box__title {
+  color: #00dcff;
+}
+.el-message-box__content {
+  color: #cfe8ff;
+}
+.el-message-box__input .el-input__wrapper {
+  background: rgba(4, 14, 34, 0.6);
+  box-shadow: 0 0 0 1px rgba(0, 220, 255, 0.3) inset;
+}
+.el-message-box__input .el-input__inner {
+  color: #e8f6ff;
+}
+
+/* ---------- 全局弹层：下拉菜单 / 选择器（teleport 到 body） ---------- */
+.el-select-dropdown,
+.el-dropdown-menu {
+  background: rgba(6, 18, 42, 0.97);
+  border: 1px solid rgba(0, 220, 255, 0.3);
+  box-shadow: 0 0 16px rgba(0, 220, 255, 0.2);
+}
+.el-select-dropdown__item {
+  color: #cfe8ff;
+}
+.el-select-dropdown__item.is-hovering,
+.el-select-dropdown__item:hover {
+  background: rgba(0, 220, 255, 0.12);
+  color: #00f0ff;
+}
+.el-select-dropdown__item.is-selected {
+  color: #00dcff;
+}
+.el-dropdown-menu__item {
+  color: #cfe8ff;
+}
+.el-dropdown-menu__item:not(.is-disabled):hover,
+.el-dropdown-menu__item:focus {
+  background: rgba(0, 220, 255, 0.12);
+  color: #00f0ff;
+}
+.el-dropdown-menu__item.is-disabled {
+  color: #4d657f;
+}
+.el-select__popper.el-popper,
+.el-dropdown__popper.el-popper,
+.el-picker__popper.el-popper {
+  border: 1px solid rgba(0, 220, 255, 0.3) !important;
+}
+.el-select__popper.el-popper .el-popper__arrow::before,
+.el-dropdown__popper.el-popper .el-popper__arrow::before,
+.el-picker__popper.el-popper .el-popper__arrow::before {
+  background: rgba(6, 18, 42, 0.97);
+  border-color: rgba(0, 220, 255, 0.3);
+}
+
+/* ---------- 全局弹层：日期选择面板 ---------- */
+.el-picker-panel {
+  background: rgba(6, 18, 42, 0.97);
+  border: 1px solid rgba(0, 220, 255, 0.3);
+  color: #cfe8ff;
+}
+.el-picker-panel__footer,
+.el-date-picker__footer {
+  background: transparent;
+  border-top: 1px solid rgba(0, 220, 255, 0.18);
+}
+.el-date-picker__header-label,
+.el-date-table th,
+.el-picker-panel__icon-btn {
+  color: #9fc6e8;
+}
+.el-date-table td .el-date-table-cell__text {
+  color: #cfe8ff;
+}
+.el-date-table td.available:hover .el-date-table-cell__text,
+.el-date-table td .el-date-table-cell__text:hover {
+  color: #00f0ff;
+}
+.el-date-table td.disabled .el-date-table-cell__text {
+  background: transparent;
+  color: #4d657f;
+}
+.el-time-spinner__item {
+  color: #cfe8ff;
+}
+.el-time-spinner__item.is-active {
+  color: #00dcff;
+}
+.el-time-spinner__item:hover {
+  background: rgba(0, 220, 255, 0.12);
+}
+.el-time-panel {
+  background: rgba(6, 18, 42, 0.97);
+  border: 1px solid rgba(0, 220, 255, 0.3);
+}
+.el-time-panel__btn,
+.el-time-panel__content::after,
+.el-time-panel__content::before {
+  border-color: rgba(0, 220, 255, 0.18);
+}
+.el-picker-panel__shortcut {
+  color: #cfe8ff;
+}
+
+/* =========================================================================
+ * 各管理页个性化白底残留覆盖（页面 scoped 样式的白底/深字统一压暗）
+ * ========================================================================= */
+
+/* —— 通用：分页分隔线、批量工具条、表单提示 —— */
+.tech-main .pagination-wrapper {
+  border-top-color: rgba(0, 220, 255, 0.18) !important;
+}
+.tech-main .el-card.toolbar-card {
+  background: rgba(0, 220, 255, 0.08) !important;
+  border-color: rgba(0, 220, 255, 0.45) !important;
+}
+.tech-main .batch-text,
+.tech-main .form-hint,
+.tech-main .input-hint,
+.tech-main .replan-content p,
+.tech-main .case-desc,
+.tech-main .section-content,
+.tech-main .timeline-detail,
+.tech-main .export-tip,
+.tech-main .export-desc,
+.tech-main .upload-text,
+.tech-main .mode-tip,
+.tech-main .field-list {
+  color: #9fc6e8 !important;
+}
+.tech-main .batch-text strong {
+  color: #00f0ff !important;
+  font-family: 'Courier New', monospace;
+  text-shadow: 0 0 8px rgba(0, 240, 255, 0.6);
+}
+
+/* —— 页面头部卡片（用例 / 性能分析） —— */
+.tech-main .el-card.header-card {
+  background: linear-gradient(180deg, rgba(6, 18, 42, 0.95), rgba(6, 18, 42, 0.55)) !important;
+}
+.tech-main .title,
+.tech-main .page-title,
+.tech-main .satellite-name,
+.tech-main .case-name,
+.tech-main .section-title,
+.tech-main .history-title,
+.tech-main .result-title,
+.tech-main .chart-title,
+.tech-main .card-title,
+.tech-main .card-header,
+.tech-main .card-header-inner,
+.tech-main .stat-value,
+.tech-main .param-value,
+.tech-main .timeline-title,
+.tech-main .export-name,
+.tech-main .mode-label,
+.tech-main .info-title {
+  color: #e8f6ff !important;
+}
+.tech-main .title,
+.tech-main .page-title {
+  letter-spacing: 2px;
+  background: linear-gradient(180deg, #ffffff, #7fd4ff);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  filter: drop-shadow(0 0 6px rgba(0, 220, 255, 0.4));
+}
+.tech-main .subtitle,
+.tech-main .page-subtitle,
+.tech-main .stat-label,
+.tech-main .param-label,
+.tech-main .case-desc,
+.tech-main .weight-name,
+.tech-main .form-label,
+.tech-main .param-item label,
+.tech-main .chart-placeholder,
+.tech-main .upload-zone-text .primary,
+.tech-main .upload-zone-text .secondary,
+.tech-main .upload-text .primary,
+.tech-main .upload-text .secondary,
+.tech-main .field-item {
+  color: #9fc6e8 !important;
+}
+.tech-main .upload-text .secondary em,
+.tech-main .upload-zone-text .secondary em {
+  color: #00dcff !important;
+}
+.tech-main .upload-icon,
+.tech-main .upload-zone-icon {
+  color: #4d90b8 !important;
+}
+.tech-main .mode-label.inactive {
+  color: #4d657f !important;
+}
+
+/* —— 统计卡片数值：等宽字体 + 青色发光 —— */
+.tech-main .stat-card .stat-value {
+  color: #00f0ff !important;
+  font-family: 'Courier New', monospace;
+  text-shadow: 0 0 8px rgba(0, 240, 255, 0.6);
+}
+.tech-main .stat-card.stat-waiting .stat-value {
+  color: #ffd657 !important;
+  text-shadow: 0 0 8px rgba(255, 214, 87, 0.5);
+}
+.tech-main .stat-card.stat-completed .stat-value {
+  color: #8ee06a !important;
+  text-shadow: 0 0 8px rgba(103, 194, 58, 0.5);
+}
+
+/* —— 用例 / 任务设置 / 详情页的浅色容器块 —— */
+.tech-main .case-item,
+.tech-main .param-item,
+.tech-main .info-section {
+  background: rgba(0, 220, 255, 0.05) !important;
+  border: 1px solid rgba(0, 220, 255, 0.15);
+}
+.tech-main .case-item:hover {
+  background: rgba(0, 220, 255, 0.12) !important;
+}
+.tech-main .case-content,
+.tech-main .result-actions,
+.tech-main .form-actions-row,
+.tech-main .plan-box,
+.tech-main .upload-actions-bar {
+  border-top-color: rgba(0, 220, 255, 0.18) !important;
+}
+.tech-main .el-card.result-card {
+  background: rgba(0, 220, 255, 0.06) !important;
+  border-color: rgba(0, 220, 255, 0.45) !important;
+}
+.tech-main .case-card:hover {
+  box-shadow: 0 0 18px rgba(0, 220, 255, 0.3) !important;
+}
+.tech-main .feature-list {
+  color: #cfe8ff !important;
+}
+.tech-main .field-item {
+  background: rgba(0, 220, 255, 0.06) !important;
+  border: 1px solid rgba(0, 220, 255, 0.12);
+}
+.tech-main .field-dot {
+  background: #00dcff !important;
+  box-shadow: 0 0 4px rgba(0, 220, 255, 0.8);
+}
+
+/* —— 卫星详情页 —— */
+.tech-main .satellite-icon {
+  background: linear-gradient(135deg, rgba(0, 220, 255, 0.15), rgba(0, 100, 200, 0.15)) !important;
+  border: 1px solid rgba(0, 220, 255, 0.35);
+}
+.tech-main .el-card__header {
+  background: linear-gradient(90deg, rgba(0, 220, 255, 0.12), transparent);
+}
+
+/* —— 系统设置页 —— */
+.tech-main .el-card.setting-card,
+.tech-main .el-card.sat-card,
+.tech-main .el-card.sat-single-card {
+  background: rgba(8, 20, 46, 0.78) !important;
+}
+.tech-main .settings-container {
+  background: transparent !important;
+  min-height: auto;
+}
+.tech-main .page-header {
+  background: linear-gradient(180deg, rgba(6, 18, 42, 0.95), rgba(6, 18, 42, 0.55)) !important;
+  border: 1px solid rgba(0, 220, 255, 0.35);
+  box-shadow: 0 0 12px rgba(0, 220, 255, 0.15) !important;
+}
+.tech-main .header-icon {
+  background: rgba(0, 220, 255, 0.12) !important;
+  border: 1px solid rgba(0, 220, 255, 0.3);
+}
+.tech-main .section-tag {
+  background: linear-gradient(135deg, #0090c0, #00f0ff) !important;
+  color: #04253a !important;
+  box-shadow: 0 0 8px rgba(0, 220, 255, 0.45);
+}
+.tech-main .upload-zone-wrapper {
+  background: rgba(4, 14, 34, 0.5) !important;
+  border: 1px dashed rgba(0, 220, 255, 0.35) !important;
+}
+.tech-main .settings-container .el-card__header,
+.tech-main .info-card .el-card__header {
+  background: linear-gradient(90deg, rgba(0, 220, 255, 0.12), transparent) !important;
+  border-bottom-color: rgba(0, 220, 255, 0.25) !important;
+}
+.tech-main .plan-box .el-radio-button__inner,
+.tech-main .el-radio-button__inner {
+  border-left-color: rgba(0, 220, 255, 0.25) !important;
+}
+
+/* —— 数字强调（表格内数值列等） —— */
+.tech-main .num-glow {
+  font-family: 'Courier New', monospace;
+  color: #00f0ff;
+  text-shadow: 0 0 8px rgba(0, 240, 255, 0.6);
+}

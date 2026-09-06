@@ -1,6 +1,24 @@
 import os
+from datetime import timedelta
 from Service.task_scheduling import Task, Satellite
 from Service.Analyzer import SimplifiedSatelliteScheduler as Scheduler
+from extions import occ
+
+
+def _constraint_params():
+    """读取星簇级约束项配置（时间/能源/固存），返回 (时间窗缓冲min, 电量预留Wh, 存储预留GB)，OCC 未就绪时全为 0"""
+    try:
+        cfg = occ.constraint_config
+    except Exception:
+        return 0.0, 0.0, 0.0
+    tbuf = ereserve = sreserve = 0.0
+    if cfg.get('time', {}).get('enabled'):
+        tbuf = float(cfg['time'].get('threshold') or 0)
+    if cfg.get('energy', {}).get('enabled'):
+        ereserve = float(cfg['energy'].get('threshold') or 0)
+    if cfg.get('storage', {}).get('enabled'):
+        sreserve = float(cfg['storage'].get('threshold') or 0)
+    return tbuf, ereserve, sreserve
 
 
 def get_next_available_folder(base_path):
@@ -20,8 +38,20 @@ def exportcfuc(tasks, satellites, start_time, end_time, completed_gravity, balan
     task_array = []
     satellite_array = []
 
+    # 星簇级约束项：时间窗缓冲 / 能源预留 / 固存预留（见 ControlleService.constraint_config）
+    tbuf_min, energy_reserve, storage_reserve = _constraint_params()
+    tbuf = timedelta(minutes=tbuf_min) if tbuf_min > 0 else None
+
     # 处理任务数据
     for task in tasks:
+        # 时间约束：任务时间窗两端各收缩缓冲时长（保证窗口不反转）
+        est = task.earliest_start_time
+        let_ = task.latest_end_time
+        if tbuf is not None and est is not None and let_ is not None:
+            est = est + tbuf
+            let_ = let_ - tbuf
+            if est > let_:
+                est = let_
         task1 = Task(
             task_id=task.task_id,  # 任务ID
             cluster_names=task.cluster_name,  # 所属星簇
@@ -30,8 +60,8 @@ def exportcfuc(tasks, satellites, start_time, end_time, completed_gravity, balan
             target_location=task.target_location,  # 目标位置
             sensor_type=task.sensor_type,  # 载荷类型
             resolution=task.resolution,  # 分辨率
-            earliest_start_time=task.earliest_start_time,  # 最早开始时间
-            latest_end_time=task.latest_end_time,  # 最晚结束时间
+            earliest_start_time=est,  # 最早开始时间（应用时间约束缓冲）
+            latest_end_time=let_,  # 最晚结束时间（应用时间约束缓冲）
             visible_windows=task.visible_windows,  # 可见时间窗
             parent_task_id=task.parent_task_id,  # 父任务ID
             boundary_points=task.boundary_points,  # 边界点
@@ -44,6 +74,9 @@ def exportcfuc(tasks, satellites, start_time, end_time, completed_gravity, balan
     for satellite in satellites:
         imaging_powers = {'optical': 500, 'SAR': 1000, 'infrared': 700}
         imaging_powers[satellite.star_payload] = satellite.imaging_powers
+        # 能源/固存约束：容量中扣除预留量，调度算法视预留部分为不可用
+        eff_battery_cap = max(0.0, satellite.battery_capacity - energy_reserve)
+        eff_storage_cap = max(0.0, satellite.max_storage - storage_reserve)
         sat = Satellite(
             cluster_names=satellite.belong_cluster,
             sat_id=satellite.sat_name,
@@ -51,10 +84,10 @@ def exportcfuc(tasks, satellites, start_time, end_time, completed_gravity, balan
             tle_line1=satellite.tle_line1,
             tle_line2=satellite.tle_line2,
             resolution_capability=satellite.resolution_capability,
-            battery_capacity=satellite.battery_capacity,  # 电池容量
-            initial_battery=satellite.battery,  # 初始当前电量
-            data_storage=satellite.max_storage,  # 存储容量GB
-            initial_storage=satellite.storage,  # 初始化当前存储
+            battery_capacity=eff_battery_cap,  # 电池容量（扣除能源约束预留）
+            initial_battery=min(satellite.battery, eff_battery_cap),  # 初始当前电量
+            data_storage=eff_storage_cap,  # 存储容量GB（扣除固存约束预留）
+            initial_storage=min(satellite.storage, eff_storage_cap),  # 初始化当前存储
             # imaging_speed=satellite.imaging_speed,  # 成像速度（像素/秒）
             downlink_windows=satellite.downlink_windows,  # 下行时间窗
             charging_windows=satellite.charging_windows,  # 充电时间窗

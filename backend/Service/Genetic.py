@@ -297,8 +297,8 @@ class GeneticAlgorithm:
                     downlink_end = downlink_window.get('end', downlink_window.get('end_time'))
                     if not downlink_start or not downlink_end:
                         continue
-                except:
-                    print(f"  无法解析下行窗口 #{window_idx}: {downlink_window}")
+                except Exception as e:
+                    print(f"  无法解析下行窗口 #{window_idx}: {downlink_window}: {e}")
                     continue
 
             # 检查下行窗口是否与当前时间段重叠
@@ -419,11 +419,16 @@ class GeneticAlgorithm:
 
         # 评估初始种群适应度
         if parallel and population_size >= 10:
-            # 启用多进程处理大种群
-            num_processes = min(cpu_count(), 8)  # 限制进程数防止资源过度消耗
-            with Pool(processes=num_processes) as pool:
-                fitness_schedules = pool.map(self._evaluate_chromosome, population)
-            fitness_scores, schedules = zip(*fitness_schedules)
+            try:
+                # 启用多进程处理大种群
+                num_processes = min(cpu_count(), 8)  # 限制进程数防止资源过度消耗
+                with Pool(processes=num_processes) as pool:
+                    fitness_schedules = pool.map(self._evaluate_chromosome, population)
+                fitness_scores, schedules = zip(*fitness_schedules)
+            except Exception as e:
+                # daemon 线程中无法创建子进程，回退为串行执行
+                print(f"多进程评估失败，回退为串行执行: {e}")
+                fitness_scores, schedules = zip(*[self._evaluate_chromosome(chromosome) for chromosome in population])
         else:
             fitness_scores, schedules = zip(*[self._evaluate_chromosome(chromosome) for chromosome in population])
 
@@ -482,10 +487,16 @@ class GeneticAlgorithm:
 
             # 并行评估子代
             if parallel and len(offspring_chromosomes) >= 10:
-                num_processes = min(cpu_count(), 8)
-                with Pool(processes=num_processes) as pool:
-                    offspring_results = pool.map(self._evaluate_chromosome, offspring_chromosomes)
-                offspring_fitness, offspring_schedules = zip(*offspring_results)
+                try:
+                    num_processes = min(cpu_count(), 8)
+                    with Pool(processes=num_processes) as pool:
+                        offspring_results = pool.map(self._evaluate_chromosome, offspring_chromosomes)
+                    offspring_fitness, offspring_schedules = zip(*offspring_results)
+                except Exception as e:
+                    # daemon 线程中无法创建子进程，回退为串行执行
+                    print(f"多进程评估失败，回退为串行执行: {e}")
+                    offspring_results = [self._evaluate_chromosome(chrom) for chrom in offspring_chromosomes]
+                    offspring_fitness, offspring_schedules = zip(*offspring_results)
             else:
                 offspring_results = [self._evaluate_chromosome(chrom) for chrom in offspring_chromosomes]
                 offspring_fitness, offspring_schedules = zip(*offspring_results)

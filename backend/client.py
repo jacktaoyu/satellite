@@ -1,6 +1,7 @@
 import socket
 import threading
 import json
+import os
 import time
 from queue import Queue
 
@@ -18,6 +19,9 @@ class SatelliteClient:
         try:
             self.client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             self.client_socket.connect((self.server_ip, self.server_port))
+            # 连接后首先发送鉴权握手消息（与服务端 SOCKET_AUTH_TOKEN 对应）
+            token = os.environ.get('SOCKET_AUTH_TOKEN', 'dev-satellite-token')
+            self.client_socket.sendall((json.dumps({"token": token}) + "\n").encode())
             print(f"已连接到服务端 {self.server_ip}:{self.server_port}")
             return True
         except Exception as e:
@@ -83,6 +87,9 @@ class SatelliteClient:
             except Exception as e:
                 print(f"接收任务出错: {str(e)}")
                 break
+        # 接收线程退出（与服务端断连），置标志让主循环退出，避免空转
+        self.is_running = False
+        print("与服务端的连接已断开，客户端退出")
 
     def _execute_task(self, task_msg):
         """执行任务"""
@@ -111,6 +118,8 @@ class SatelliteClient:
                     # 确保发送完整JSON数据，添加换行符作为消息分隔符
                     data = json.dumps(result) + "\n"
                     self.client_socket.sendall(data.encode())
+                else:
+                    time.sleep(0.1)  # 避免忙等占满CPU
             except Exception as e:
                 print(f"发送结果出错: {str(e)}")
                 break

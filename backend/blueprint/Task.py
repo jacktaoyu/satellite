@@ -1,12 +1,15 @@
 import os
 from datetime import datetime, timedelta
-from operator import and_
+from sqlalchemy import and_
+
 
 from flask import Blueprint, request, jsonify, render_template, send_file
 from sqlalchemy import not_
+from werkzeug.utils import secure_filename
 
 from database import db
 from model.TaskModel import NewTaskModel, OldTaskModel
+from model.CaseHistoryModel import CaseHistoryModel
 from extions import occ
 
 # 创建任务蓝图对象
@@ -32,13 +35,17 @@ def add_tasks():
         return jsonify({"error": "没有选择文件"}), 400
 
     # 确保library目录存在
-    library_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), ''
-                                                                           'library')
+    library_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'library')
     if not os.path.exists(library_dir):
         os.makedirs(library_dir)
 
-    # 保存文件
-    file_path = os.path.join(library_dir, file.filename)
+    # 保存文件（文件名安全处理并校验路径必须位于library目录内，防止路径穿越）
+    filename = secure_filename(file.filename)
+    if not filename:
+        return jsonify({"error": "非法的文件名"}), 400
+    file_path = os.path.realpath(os.path.join(library_dir, filename))
+    if not file_path.startswith(os.path.realpath(library_dir) + os.sep):
+        return jsonify({"error": "非法的文件路径"}), 400
     file.save(file_path)
 
     # 生成任务并添加到队列
@@ -69,6 +76,19 @@ def add_single_task():
     form = request.json
     task = occ.generate_single_task(form)
     return jsonify({"result": "ok"})
+
+
+# 编辑未完成任务（只更新传入的字段，执行中的任务不允许编辑）
+@task_bp.route('/updateTask/<int:task_id>', methods=['POST'])
+def update_task(task_id):
+    form = request.json or {}
+    task = NewTaskModel.query.filter_by(id=task_id).first()
+    if not task:
+        return jsonify({"meta": {"status": 404, "message": "任务不存在"}}), 404
+    if task.status == "正在执行":
+        return jsonify({"meta": {"status": 409, "message": "任务执行中，无法编辑"}}), 409
+    occ.edit_task(task_id, form)
+    return jsonify({"meta": {"status": 200, "message": "任务更新成功"}})
 
 
 # 根据id删除任务
@@ -102,7 +122,7 @@ def get_new_tasks_by_page():
             'sensor_type': task.sensor_type,
             'task_type': task.task_type,
             'resolution': task.resolution,
-            'target_target_location': task.target_target_location,
+            'target_location': task.target_location,
             'start_time': task.start_time,
             'end_time': task.end_time,
             'assigned_satellite_name': task.assigned_satellite_name,
@@ -395,7 +415,9 @@ def get_old_tasks_by_condition():
 @task_bp.route('/getOldTaskById/<int:id>', methods=['GET'])
 def get_old_task_by_id(id):
     task = OldTaskModel.query.get(id)
-    return jsonify({"result": task})
+    if not task:
+        return jsonify({"error": "任务不存在"}), 404
+    return jsonify({"result": task.to_dict()})
 
 
 # # 领取下一个可执行任务（供卫星客户端轮询/领取）
@@ -470,7 +492,7 @@ def get_old_task_by_id(id):
 
 
 # 暂停任务
-@task_bp.route('/pauseTask/<int:id>', methods=['GET'])
+@task_bp.route('/pauseTask/<int:id>', methods=['POST'])
 def pause_task(id):
     if not occ.satellite_network:
         return jsonify({"error": "卫星网络未初始化，请先上传TLE文件和卫星参数"}), 400
@@ -481,7 +503,7 @@ def pause_task(id):
 
 
 # 开始任务
-@task_bp.route('/startTask/<int:id>', methods=['GET'])
+@task_bp.route('/startTask/<int:id>', methods=['POST'])
 def start_task(id):
     if not occ.satellite_network:
         return jsonify({"error": "卫星网络未初始化，请先上传TLE文件和卫星参数"}), 400
@@ -494,6 +516,12 @@ def start_task(id):
 # 删除任务
 @task_bp.route('/deleteTask/<int:id>', methods=['DELETE'])
 def delete_task(id):
+    # 先查新任务表再查旧任务表，避免新旧表 id 碰撞时误删旧表归档记录
+    new_task = NewTaskModel.query.filter_by(id=id).first()
+    if new_task:
+        status = new_task.status
+        occ.delete_task(id, status)
+        return "ok"
     old_task = OldTaskModel.query.filter_by(id=id).first()
     if old_task:
         # 删除图片文件（如果有）
@@ -510,18 +538,11 @@ def delete_task(id):
         db.session.delete(old_task)
         db.session.commit()
         return "ok"
-    else:
-        new_task = NewTaskModel.query.filter_by(id=id).first()
-        if new_task:
-            status = new_task.status
-            occ.delete_task(id, status)
-            return "ok"
-        else:
-            return "任务不存在"
+    return "任务不存在"
 
 
 # 手动结束任务
-@task_bp.route('/manualEndTask/<int:id>', methods=['GET'])
+@task_bp.route('/manualEndTask/<int:id>', methods=['POST'])
 def manual_end_task(id):
     if not occ.satellite_network:
         return jsonify({"error": "卫星网络未初始化，请先上传TLE文件和卫星参数"}), 400
@@ -544,63 +565,60 @@ def export_old_task(id):
             sensor_type = "红外"
         else:
             sensor_type = "光学"
-        if old_task:
-            try:
-                # 格式化任务数据
-                task_data = f"""任务详情:
-        ID: {old_task.id}
-        任务名称: {old_task.task_name}
-        优先级: {old_task.priority}
-        紧急任务: {'是' if old_task.is_emergency else '否'}
-        载荷类型: {sensor_type}
-        任务类型: {old_task.task_type}
-        分辨率要求(m): {old_task.resolution}
-        开始时间: {old_task.start_time}
-        结束时间: {old_task.end_time}
-        定时时间: {old_task.appoint_time}
-        纬度,经度: {old_task.target_location}
-        分配卫星: {old_task.assigned_satellite_name if old_task.assigned_satellite_name is not None else ''}
-        任务状态: {old_task.status}
-        云层厚度: {old_task.cloud_thickness}
-        图片路径: {old_task.path}
-        """
-                # 创建临时文件
-                import tempfile
-                import os
-                from datetime import datetime
+        try:
+            # 与 exportAllOldTasks 保持一致的 Excel 导出方式
+            task_dict = {
+                '任务ID': old_task.id,
+                '任务名称': old_task.task_name,
+                '优先级': old_task.priority,
+                '紧急任务': '是' if old_task.is_emergency else '否',
+                '载荷类型': sensor_type,
+                '任务类型': old_task.task_type,
+                '分辨率(m)': old_task.resolution,
+                '开始时间': str(old_task.start_time),
+                '结束时间': str(old_task.end_time),
+                '定时时间': str(old_task.appoint_time),
+                '纬度,经度': old_task.target_location,
+                '分配卫星': str(old_task.assigned_satellite_name) if old_task.assigned_satellite_name is not None else '',
+                '任务状态': old_task.status,
+                '云层厚度': old_task.cloud_thickness,
+                '图片路径': old_task.path
+            }
 
-                # 创建临时文件
-                temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.txt', mode='w', encoding='utf-8')
-                temp_file.write(task_data)
-                temp_file.close()
+            # 使用pandas创建DataFrame并导出为Excel
+            import pandas as pd
+            import tempfile
+            import os
 
-                # 发送文件给前端
-                response = send_file(
-                    temp_file.name,
-                    as_attachment=True,
-                    download_name=f'未完成任务task_{id}_{datetime.now().strftime("%Y%m%d_%H%M%S")}.txt',
-                    mimetype='text/plain'
-                )
+            df = pd.DataFrame([task_dict])
 
-                # 添加响应头
-                response.headers[
-                    "Content-Disposition"] = f"attachment; filename=task_{id}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
-                response.headers["Content-Type"] = "text/plain; charset=utf-8"
+            # 创建临时文件
+            temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.xlsx')
+            temp_file.close()
 
-                # 在响应发送后删除临时文件
-                @response.call_on_close
-                def cleanup():
-                    try:
-                        os.unlink(temp_file.name)
-                    except Exception as e:
-                        print(f"Error deleting temporary file: {e}")
+            # 将数据写入Excel文件
+            df.to_excel(temp_file.name, index=False, engine='openpyxl')
 
-                return response
+            # 发送文件给前端
+            response = send_file(
+                temp_file.name,
+                as_attachment=True,
+                download_name=f'已完成任务task_{id}_{datetime.now().strftime("%Y%m%d_%H%M%S")}.xlsx',
+                mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+            )
 
-            except Exception as e:
-                return {'status': 'error', 'message': f'导出文件时发生错误: {str(e)}'}, 500
+            # 在响应发送后删除临时文件，避免临时文件泄漏
+            @response.call_on_close
+            def cleanup():
+                try:
+                    os.unlink(temp_file.name)
+                except Exception as e:
+                    print(f"Error deleting temporary file: {e}")
 
-        return {'status': 'success', 'message': '找到指定任务'}, 200
+            return response
+
+        except Exception as e:
+            return {'status': 'error', 'message': f'导出文件时发生错误: {str(e)}'}, 500
     else:
         return {'status': 'error', 'message': '未找到指定任务'}, 404
 
@@ -617,61 +635,59 @@ def export_task(id):
             sensor_type = "红外"
         else:
             sensor_type = "光学"
-        if new_task:
-            try:
-                # 格式化任务数据
-                task_data = f"""任务详情:
-        ID: {new_task.id}
-        任务名称: {new_task.task_name}
-        优先级: {new_task.priority}
-        紧急任务: {'是' if new_task.is_emergency else '否'}
-        载荷类型: {sensor_type}
-        任务类型: {new_task.task_type}
-        分辨率要求(m): {new_task.resolution}
-        开始时间: {new_task.start_time}
-        结束时间: {new_task.end_time}
-        定时时间: {new_task.appoint_time}
-        纬度,经度: {new_task.target_location}
-        分配卫星: {new_task.assigned_satellite_name if new_task.assigned_satellite_name is not None else ''}
-        任务状态: {new_task.status}
-        星簇名称: {new_task.cluster_name}
-        """
-                # 创建临时文件
-                import tempfile
-                import os
-                from datetime import datetime
+        try:
+            # 与 exportAllNewTasks 保持一致的 Excel 导出方式
+            task_dict = {
+                '任务ID': new_task.id,
+                '任务名称': new_task.task_name,
+                '优先级': new_task.priority,
+                '紧急任务': '是' if new_task.is_emergency else '否',
+                '载荷类型': sensor_type,
+                '任务类型': new_task.task_type,
+                '分辨率要求(m)': new_task.resolution,
+                '开始时间': str(new_task.start_time),
+                '结束时间': str(new_task.end_time),
+                '定时时间': str(new_task.appoint_time),
+                '纬度,经度': new_task.target_location,
+                '分配卫星': str(new_task.assigned_satellite_name) if new_task.assigned_satellite_name is not None else '',
+                '任务状态': new_task.status,
+                '星簇名称': new_task.cluster_name
+            }
 
-                # 创建临时文件
-                temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.txt', mode='w', encoding='utf-8')
-                temp_file.write(task_data)
-                temp_file.close()
+            # 使用pandas创建DataFrame并导出为Excel
+            import pandas as pd
+            import tempfile
+            import os
 
-                # 发送文件给前端
-                response = send_file(
-                    temp_file.name,
-                    as_attachment=True,
-                    download_name=f'未完成任务task_{id}_{datetime.now().strftime("%Y%m%d_%H%M%S")}.txt',
-                    mimetype='text/plain'
-                )
+            df = pd.DataFrame([task_dict])
 
-                # 添加响应头
-                response.headers[
-                    "Content-Disposition"] = f"attachment; filename=task_{id}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
-                response.headers["Content-Type"] = "text/plain; charset=utf-8"
+            # 创建临时文件
+            temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.xlsx')
+            temp_file.close()
 
-                # 在响应发送后删除临时文件
-                @response.call_on_close
-                def cleanup():
-                    try:
-                        os.unlink(temp_file.name)
-                    except Exception as e:
-                        print(f"Error deleting temporary file: {e}")
+            # 将数据写入Excel文件
+            df.to_excel(temp_file.name, index=False, engine='openpyxl')
 
-                return response
+            # 发送文件给前端
+            response = send_file(
+                temp_file.name,
+                as_attachment=True,
+                download_name=f'未完成任务task_{id}_{datetime.now().strftime("%Y%m%d_%H%M%S")}.xlsx',
+                mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+            )
 
-            except Exception as e:
-                return {'status': 'error', 'message': f'导出文件时发生错误: {str(e)}'}, 500
-        return {'status': 'success', 'message': '找到指定任务'}, 200
+            # 在响应发送后删除临时文件，避免临时文件泄漏
+            @response.call_on_close
+            def cleanup():
+                try:
+                    os.unlink(temp_file.name)
+                except Exception as e:
+                    print(f"Error deleting temporary file: {e}")
+
+            return response
+
+        except Exception as e:
+            return {'status': 'error', 'message': f'导出文件时发生错误: {str(e)}'}, 500
     else:
         return {'status': 'error', 'message': '未找到指定任务'}, 404
 
@@ -723,12 +739,22 @@ def export_all_new_tasks():
     df.to_excel(temp_file.name, index=False, engine='openpyxl')
 
     # 发送文件给前端
-    return send_file(
+    response = send_file(
         temp_file.name,
         as_attachment=True,
         download_name=f'未完成任务列表{datetime.now()}.xlsx',
         mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
     )
+
+    # 在响应发送后删除临时文件，避免临时文件泄漏
+    @response.call_on_close
+    def cleanup():
+        try:
+            os.unlink(temp_file.name)
+        except Exception as e:
+            print(f"Error deleting temporary file: {e}")
+
+    return response
 
 
 # 导出所有已完成任务
@@ -779,66 +805,156 @@ def export_all_old_tasks():
     df.to_excel(temp_file.name, index=False, engine='openpyxl')
 
     # 发送文件给前端
-    return send_file(
+    response = send_file(
         temp_file.name,
         as_attachment=True,
         download_name=f'已完成任务列表{datetime.now()}.xlsx',
         mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
     )
 
+    # 在响应发送后删除临时文件，避免临时文件泄漏
+    @response.call_on_close
+    def cleanup():
+        try:
+            os.unlink(temp_file.name)
+        except Exception as e:
+            print(f"Error deleting temporary file: {e}")
+
+    return response
+
+
+# 示范用例：获取案例数据；若无已归档的案例，则从预置案例文件（library/preset_cases.xlsx）自动生成对应类型的案例任务
+def _get_or_generate_case(case_attr, case_type, not_found_msg):
+    """
+    :param case_attr: occ 上记录最新案例任务id的属性名（point/area/ocean）
+    :param case_type: 案例任务类型（点目标案例/陆地区域目标案例/海洋搜救案例）
+    :param not_found_msg: 未找到数据时的提示语
+    """
+    # 1. 优先返回 occ 记录的最近一次案例
+    case_id = getattr(occ, case_attr, None)
+    if case_id is not None:
+        old_task_model = OldTaskModel.query.filter_by(task_type=case_type, id=case_id).first()
+        if old_task_model is not None:
+            return old_task_model.to_dict(), 200
+
+    # 2. 指针为空或记录已丢失时，自动查询最新一条已归档案例并回填指针
+    latest_case = OldTaskModel.query.filter_by(task_type=case_type, is_photo=False).order_by(
+        OldTaskModel.id.desc()).first()
+    if latest_case is not None:
+        setattr(occ, case_attr, latest_case.id)
+        return latest_case.to_dict(), 200
+
+    # 3. 库中无案例数据：从预置案例文件自动生成该类型的案例任务
+    # 若调度队列中已有该类型的待执行案例任务，直接提示，避免重复点击产生重复任务
+    pending_cases = NewTaskModel.query.filter_by(task_type=case_type).all()
+    if pending_cases:
+        return jsonify({
+            "message": f"{case_type}已在调度队列中（{len(pending_cases)}条任务等待执行），可在任务管理页面查看",
+            "count": len(pending_cases),
+            "generated": False
+        }), 200
+
+    backend_dir = os.path.dirname(os.path.dirname(__file__))
+    preset_path = os.path.join(backend_dir, 'library', 'preset_cases.xlsx')
+    if not os.path.exists(preset_path):
+        return {"msg": not_found_msg}, 404
+
+    import openpyxl
+    import tempfile
+    src_wb = openpyxl.load_workbook(preset_path)
+    try:
+        src_ws = src_wb.active
+        tmp_wb = openpyxl.Workbook()
+        tmp_ws = tmp_wb.active
+        # 复制表头与匹配类型的案例行
+        for col in range(1, src_ws.max_column + 1):
+            tmp_ws.cell(row=1, column=col, value=src_ws.cell(row=1, column=col).value)
+        matched = 0
+        for row in range(2, src_ws.max_row + 1):
+            if src_ws.cell(row=row, column=3).value and str(src_ws.cell(row=row, column=3).value).strip() == case_type:
+                matched += 1
+                for col in range(1, src_ws.max_column + 1):
+                    tmp_ws.cell(row=matched + 1, column=col, value=src_ws.cell(row=row, column=col).value)
+    finally:
+        src_wb.close()
+    if matched == 0:
+        return {"msg": not_found_msg}, 404
+
+    tmp_file = tempfile.NamedTemporaryFile(suffix='.xlsx', delete=False)
+    tmp_wb.save(tmp_file.name)
+    tmp_file.close()
+    tasks = occ.generate_tasks(tmp_file.name)
+    try:
+        os.unlink(tmp_file.name)
+    except OSError:
+        pass
+    if not tasks:
+        return {"msg": f"{case_type}任务生成失败"}, 400
+    return jsonify({
+        "message": f"{case_type}已生成，共{len(tasks)}条任务加入调度队列，可在任务管理页面查看执行进度",
+        "count": len(tasks),
+        "generated": True
+    }), 200
+
 
 # 点目标案例数据
 @task_bp.route('/pointTargetCase', methods=['GET'])
 def point_target_case():
-    point = occ.point
-    if point is None:
-        return {"msg": "没有找到点目标案例数据"}, 400
-    old_task_model = OldTaskModel.query.filter_by(task_type="点目标案例", id=point).first()
-    if old_task_model is None:
-        return {"msg": "没有找到点目标案例数据"}, 404
-    return old_task_model.to_dict()
+    result, code = _get_or_generate_case('point', '点目标案例', '没有找到点目标案例数据')
+    return result, code
 
 
 # 区域目标案例数据
 @task_bp.route('/areaTargetCase', methods=['GET'])
 def area_target_case():
-    area = occ.area
-    if area is None:
-        return {"msg": "没有找到陆地区域数据"}, 400
-    old_task_model = OldTaskModel.query.filter_by(task_type="陆地区域目标案例", id=area).first()
-    if old_task_model is None:
-        return {"msg": "没有找到区域目标案例数据"}, 404
-    return old_task_model.to_dict()
+    result, code = _get_or_generate_case('area', '陆地区域目标案例', '没有找到陆地区域数据')
+    return result, code
 
 
 # 海洋目标案例数据
 @task_bp.route('/oceanTargetCase', methods=['GET'])
 def ocean_target_case():
-    ocean = occ.ocean
-    if ocean is None:
-        return {"msg": "没有找到海洋数据"}, 400
-    old_task_model = OldTaskModel.query.filter_by(task_type="海洋搜救案例", id=ocean).first()
-    if old_task_model is None:
-        return {"msg": "没有找到海洋数据"}, 404
-    return {
-        "id": old_task_model.id,  # 任务id
-        "taskName": old_task_model.task_name,  # 任务名
-        "priority": old_task_model.priority,  # 任务优先级
-        "isEmergency": old_task_model.is_emergency,  # 是否是紧急任务
-        "sensorType": old_task_model.sensor_type,  # 载荷类型
-        "taskType": old_task_model.task_type,  # 任务类型
-        "resolution": old_task_model.resolution,  # 分辨率
-        "startTime": str(old_task_model.start_time) if old_task_model.start_time else None,  # 开始时间
-        "endTime": str(old_task_model.end_time) if old_task_model.end_time else None,  # 结束时间
-        "targetLocation": old_task_model.target_location,  # 目标位置
-        "assignedSatelliteName": old_task_model.assigned_satellite_name,  # 所属卫星
-        "status": old_task_model.status,  # 任务状态
-        "isPhoto": old_task_model.is_photo,  # 是否已经截图
-        "path": old_task_model.path.split(",") if old_task_model.path else None,  # 图片路径
-        "height": old_task_model.height,  # 卫星高度
-        "subLocations": old_task_model.sub_locations,  # 子任务位置
-        "cloud_thickness": old_task_model.cloud_thickness  # 云层厚度
-    }
+    result, code = _get_or_generate_case('ocean', '海洋搜救案例', '没有找到海洋数据')
+    return result, code
+
+
+# 综合验证案例（技术指标验证场景：20 个点目标 + 2 个区域目标 + 8 个移动目标）
+@task_bp.route('/comprehensiveCase', methods=['GET'])
+def comprehensive_case():
+    # 1. 本会话已生成过：按记录的任务ID回报当前状态，避免重复点击产生重复任务
+    ids = getattr(occ, 'comprehensive_case_ids', None)
+    if ids:
+        pending = NewTaskModel.query.filter(NewTaskModel.id.in_(ids)).count()
+        done = OldTaskModel.query.filter(OldTaskModel.id.in_(ids)).count()
+        return jsonify({
+            "message": f"综合验证案例已生成过（{pending}条等待执行，{done}条已归档），可在任务管理页面查看",
+            "count": pending + done,
+            "generated": False
+        }), 200
+
+    # 2. 从综合验证案例文件生成（generate_tasks 会删除传入文件，必须先复制到临时文件）
+    backend_dir = os.path.dirname(os.path.dirname(__file__))
+    src_path = os.path.join(backend_dir, 'library', 'comprehensive_case.xlsx')
+    if not os.path.exists(src_path):
+        return {"msg": "没有找到综合验证案例数据"}, 404
+    import shutil
+    import tempfile
+    tmp_file = tempfile.NamedTemporaryFile(suffix='.xlsx', delete=False)
+    tmp_file.close()
+    shutil.copyfile(src_path, tmp_file.name)
+    tasks = occ.generate_tasks(tmp_file.name)
+    try:
+        os.unlink(tmp_file.name)
+    except OSError:
+        pass
+    if not tasks:
+        return {"msg": "综合验证案例任务生成失败"}, 400
+    occ.comprehensive_case_ids = [t.task_id for t in tasks if getattr(t, 'task_id', None) is not None]
+    return jsonify({
+        "message": f"综合验证案例已生成，共{len(tasks)}条任务加入调度队列（含20个点目标、2个区域目标、8个移动目标），可在任务管理页面查看执行进度",
+        "count": len(tasks),
+        "generated": True
+    }), 200
 
 
 # 测试上传文件
@@ -898,7 +1014,10 @@ def download_image():
 
     saved_paths = []
     for file in files:
-        ext = os.path.splitext(secure_filename(file.filename))[1]
+        # 扩展名白名单校验，与 /satellites/upload 保持一致
+        ext = os.path.splitext(secure_filename(file.filename))[1].lower()
+        if ext not in ['.png', '.jpg', '.jpeg', '.bmp', '.gif']:
+            return jsonify({'status': 'error', 'message': '不支持的文件类型'}), 400
         random_name = secrets.token_hex(8) + ext
         save_path = os.path.join(save_dir, random_name)
         file.save(save_path)
@@ -957,3 +1076,116 @@ def get_images(id):
 
 if __name__ == '__main__':
     pass
+
+
+# 读取预置示范用例的真实字段（供前端详情弹窗展示与区域示意图渲染）
+@task_bp.route('/presetCaseInfo/<case_type>', methods=['GET'])
+def preset_case_info(case_type):
+    """
+    :param case_type: 用例类型标识 point/area/ocean
+    :return: preset_cases.xlsx 中该案例行的真实字段（优先级/载荷/坐标点等）
+    """
+    type_map = {
+        'point': '点目标案例',
+        'area': '陆地区域目标案例',
+        'ocean': '海洋搜救案例'
+    }
+    if case_type not in type_map:
+        return jsonify({'status': 'error', 'message': '未知的用例类型'}), 400
+    backend_dir = os.path.dirname(os.path.dirname(__file__))
+    preset_path = os.path.join(backend_dir, 'library', 'preset_cases.xlsx')
+    if not os.path.exists(preset_path):
+        return jsonify({'status': 'error', 'message': '预置案例文件不存在'}), 404
+
+    import openpyxl
+    wb = openpyxl.load_workbook(preset_path)
+    try:
+        ws = wb.active
+        for row in range(2, ws.max_row + 1):
+            cell_type = ws.cell(row=row, column=3).value
+            if cell_type and str(cell_type).strip() == type_map[case_type]:
+                # 解析坐标点：单点 "[33.62, -80.81]"，多点 "[22.04,121.35]|[23.0,114.0]|..."
+                raw_loc = str(ws.cell(row=row, column=7).value or '')
+                points = []
+                for part in raw_loc.split('|'):
+                    nums = part.strip().strip('[]').split(',')
+                    if len(nums) >= 2:
+                        try:
+                            points.append([round(float(nums[0]), 2), round(float(nums[1]), 2)])  # [纬度, 经度]
+                        except ValueError:
+                            continue
+                return jsonify({
+                    'status': 'success',
+                    'data': {
+                        'caseName': type_map[case_type],
+                        'priority': ws.cell(row=row, column=1).value,  # 优先级
+                        'isEmergency': ws.cell(row=row, column=2).value,  # 是否紧急
+                        'taskType': str(cell_type).strip(),  # 任务类型
+                        'sensorType': ws.cell(row=row, column=4).value,  # 载荷类型
+                        'resolution': ws.cell(row=row, column=5).value,  # 分辨率（m）
+                        'timeRange': ws.cell(row=row, column=6).value,  # 时间范围
+                        'points': points,  # 坐标点列表 [[纬度, 经度], ...]
+                        'clusterName': ws.cell(row=row, column=8).value,  # 所属星簇
+                        'cloudThickness': ws.cell(row=row, column=11).value  # 云层厚度（m）
+                    }
+                })
+        return jsonify({'status': 'error', 'message': '预置案例文件中未找到该类型案例'}), 404
+    finally:
+        wb.close()
+
+
+# 示范用例执行历史：查询（最近20条）
+@task_bp.route('/caseHistory', methods=['GET'])
+def get_case_history():
+    histories = CaseHistoryModel.query.order_by(CaseHistoryModel.id.desc()).limit(20).all()
+    return jsonify([h.to_dict() for h in histories])
+
+
+# 示范用例执行历史：新增一条
+@task_bp.route('/caseHistory', methods=['POST'])
+def add_case_history():
+    form = request.json or {}
+    case_name = (form.get('caseName') or '').strip()
+    if not case_name:
+        return jsonify({'status': 'error', 'message': '缺少 caseName'}), 400
+    task_count = form.get('taskCount')
+    history = CaseHistoryModel(
+        case_type=(form.get('caseType') or '').strip(),
+        case_name=case_name,
+        success=bool(form.get('success', True)),
+        task_count=task_count if isinstance(task_count, int) else None,
+        message=form.get('message'),
+        executed_at=datetime.now()
+    )
+    db.session.add(history)
+    db.session.commit()
+    return jsonify({'status': 'success', 'data': history.to_dict()})
+
+
+# 示范用例执行历史：清空
+@task_bp.route('/caseHistory', methods=['DELETE'])
+def clear_case_history():
+    CaseHistoryModel.query.delete()
+    db.session.commit()
+    return jsonify({'status': 'success', 'message': '历史记录已清空'})
+
+
+# 查询最近一次已归档的示范用例执行结果（只读，不触发任务生成）
+@task_bp.route('/caseResult/<case_type>', methods=['GET'])
+def case_result(case_type):
+    """
+    :param case_type: 用例类型标识 point/area/ocean
+    :return: 最新一条已归档案例任务详情（含是否拍照/图片路径/位置等）
+    """
+    type_map = {
+        'point': '点目标案例',
+        'area': '陆地区域目标案例',
+        'ocean': '海洋搜救案例'
+    }
+    if case_type not in type_map:
+        return jsonify({'status': 'error', 'message': '未知的用例类型'}), 400
+    latest_case = OldTaskModel.query.filter_by(task_type=type_map[case_type], is_photo=False).order_by(
+        OldTaskModel.id.desc()).first()
+    if latest_case is None:
+        return jsonify({'status': 'error', 'message': '暂无该用例的执行归档数据'}), 404
+    return jsonify({'status': 'success', 'data': latest_case.to_dict()})

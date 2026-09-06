@@ -37,23 +37,8 @@
             />
           </el-form-item>
 
-          <el-form-item prop="userType">
-            <el-select 
-              v-model="registerForm.userType"
-              placeholder="请选择用户类型"
-              style="width: 100%"
-            >
-              <el-option
-                v-for="item in userTypes"
-                :key="item.value"
-                :label="item.label"
-                :value="item.value"
-              />
-            </el-select>
-          </el-form-item>
-
           <div class="register-submit">
-            <el-button type="primary" @click="submitForm" class="submit-btn">注册</el-button>
+            <el-button type="primary" @click="submitForm" class="submit-btn" :loading="submitting">注册</el-button>
             <el-button @click="$router.push('/login')" class="submit-btn">返回登录</el-button>
           </div>
         </el-form>
@@ -93,22 +78,8 @@ export default {
         username: '',
         password: '',
         confirmPassword: '',
-        userType: ''
+        userType: '3' // 注册仅允许普通用户（管理员由后端/后台创建），前端不再提供用户类型选择
       },
-      userTypes: [
-        {
-          value: '1',
-          label: '管理员'
-        },
-        // {
-        //   value: '2',
-        //   label: '老板'
-        // },
-        {
-          value: '3',
-          label: '用户'
-        }
-      ],
       rules: {
         username: [
           { required: true, message: '请输入用户名', trigger: 'blur' },
@@ -120,17 +91,17 @@ export default {
         ],
         confirmPassword: [
           { required: true, validator: validatePass2, trigger: 'blur' }
-        ],
-        userType: [
-          { required: true, message: '请选择用户类型', trigger: 'change' }
         ]
-      }
+      },
+      submitting: false // 注册请求进行中，防止连续点击重复提交/重复弹提示
     }
   },
   methods: {
     submitForm() {
+      if (this.submitting) return; // 节流：请求未结束时忽略重复点击
       this.$refs.form.validate((valid) => {
         if (valid) {
+          this.submitting = true;
           this.$request.post('/register/', {
             username: this.registerForm.username,
             password: this.registerForm.password,
@@ -142,8 +113,10 @@ export default {
             } else {
               this.$message.error(res.data.meta.message || '注册失败')
             }
-          }).catch(err => {
-            this.$message.error('注册失败：' + err.message)
+          }).catch(() => {
+            // 错误提示已由 request.js 响应拦截器统一弹出，这里仅吞掉 rejection，避免重复提示与未捕获异常
+          }).finally(() => {
+            this.submitting = false;
           })
         }
       })

@@ -1,4 +1,3 @@
-import ast
 import os
 from datetime import datetime
 
@@ -7,19 +6,54 @@ from sqlalchemy import not_, and_
 from database import db
 from extions import occ
 from model.TaskModel import NewTaskModel, OldTaskModel
+from model.ClusterModel import ClusterModel
 
 # 创建卫星蓝图对象
 satellite_bp = Blueprint('satellite', __name__, url_prefix='/satellites')
 
 
+def _sync_cluster_status_by_satellite(satellite):
+    """单星可用性变更后校验其所属星簇的可用状态：
+    星簇内全部卫星不可用 → 星簇置不可用；有任意卫星可用 → 星簇恢复可用。
+    状态变化时同步回写 ClusterModel.status 落库。"""
+    if not occ.satellite_network:
+        return
+    belong = getattr(satellite, 'belong_cluster', []) or []
+    if not belong:
+        return
+    changed = False
+    for cluster in occ.satellite_network.clusters:
+        if cluster.name not in belong:
+            continue
+        available = any(star.is_available for star in cluster.stars)
+        cluster_model = ClusterModel.query.filter_by(id=cluster.cluster_id).first()
+        if cluster_model and bool(cluster_model.status) != available:
+            cluster_model.status = available
+            changed = True
+    if changed:
+        db.session.commit()
+
+
+@satellite_bp.before_request
+def check_network_initialized():
+    """检查卫星网络是否已初始化"""
+    # 跳过 CORS 预检请求 (OPTIONS)，避免跨域失败
+    if request.method == 'OPTIONS':
+        return None
+
+
 # 根据卫星id查询卫星详情
 @satellite_bp.route('/getSatelliteById/<int:id>', methods=['GET'])
 def get_satellite_by_id(id):
+    if not occ.satellite_network:
+        return jsonify({"error": "卫星网络未初始化"}), 400
     satellite = None
     for sat_name, sat in occ.satellite_network.satellites.items():
         if sat.sat_id == id:
             satellite = sat
             break
+    if satellite is None:
+        return jsonify({"error": "未找到指定卫星"}), 404
 
     result = {
         "id": satellite.sat_id,
@@ -27,8 +61,8 @@ def get_satellite_by_id(id):
         "orbit": satellite.alias,  # 卫星别名
         # "orbit": occ.satellite_network.orbit_info[satellite.orbit],
         "loadType": satellite.star_payload,
-        "position": str([round(x, 2) for x in satellite.position]) if satellite.position is not None else "",
-        "speed": str([round(x, 2) for x in satellite.speed]) if satellite.speed is not None else "",
+        "position": str([round(float(x), 2) for x in satellite.position]) if satellite.position is not None else "",
+        "speed": str([round(float(x), 2) for x in satellite.speed]) if satellite.speed is not None else "",
         "sub_point": str(satellite.sub_point) if satellite.sub_point is not None else "",
         "turns": satellite.orbit_number,
         "storage": round(satellite.storage, 2),
@@ -37,6 +71,8 @@ def get_satellite_by_id(id):
         "width": satellite.width_of_cloth,
         "sideAngle": round(satellite.side_swing_angle, 2),
         "pitchAngle": round(satellite.pitch_angle, 2),
+        "side_swing_angle_Max": satellite.side_swing_angle_Max,  # 最大侧摆角（能力上限，非当前姿态角）
+        "pitch_angle_Max": satellite.pitch_angle_Max,  # 最大俯仰角（能力上限）
         "angleVelocity": round(satellite.angle_velocity, 2),
         "settlingTime": satellite.stable_time,
         "threshold": satellite.cloud_threshold,
@@ -57,18 +93,22 @@ def get_satellite_by_id(id):
 # 根据卫星name查询卫星
 @satellite_bp.route('/getSatelliteByName/<string:name>', methods=['GET'])
 def get_satellite_by_name(name):
+    if not occ.satellite_network:
+        return jsonify({"error": "卫星网络未初始化"}), 400
     satellite = None
     for sat_name, sat in occ.satellite_network.satellites.items():
         if sat_name == name:
             satellite = sat
             break
+    if satellite is None:
+        return jsonify({"error": "未找到指定卫星"}), 404
     result = {
         "id": satellite.sat_id,
         "name": satellite.sat_name,
         "orbit": satellite.orbit,
         "loadType": satellite.star_payload,
-        "position": str([round(x, 2) for x in satellite.position]) if satellite.position is not None else "",
-        "speed": str([round(x, 2) for x in satellite.speed]) if satellite.speed is not None else "",
+        "position": str([round(float(x), 2) for x in satellite.position]) if satellite.position is not None else "",
+        "speed": str([round(float(x), 2) for x in satellite.speed]) if satellite.speed is not None else "",
         "storage": round(satellite.storage, 2),
         "battery": round(satellite.battery, 2),
         "resolution": satellite.resolution_capability,
@@ -76,10 +116,22 @@ def get_satellite_by_name(name):
         "sideAngle": round(satellite.side_swing_angle, 2),
         "pitchAngle": round(satellite.pitch_angle, 2),
         "angleVelocity": satellite.angle_velocity,
-        "settingTime": satellite.stable_time,
+        "settlingTime": satellite.stable_time,  # 稳定时间（与前端字段名 settlingTime 对齐，原 settingTime 无消费方）
         "threshold": satellite.cloud_threshold,
         "running_task": satellite.running_task,
-        "task_num": satellite.tasks_len
+        "task_num": satellite.tasks_len,
+        "sub_point": str([round(float(x), 2) for x in satellite.sub_point]) if satellite.sub_point is not None else "",  # 星下点 [纬度, 经度]
+        "turns": satellite.orbit_number,  # 飞行圈数
+        "connecting_geo": satellite.connecting_geo,  # 连接的高轨卫星
+        "is_available": satellite.is_available,  # 是否可用
+        "downlink_rate": satellite.downlink_rate,  # 下行速率 GB/s
+        "eclipse_powers": satellite.eclipse_powers,  # 空闲功率 W
+        "sunlight_powers": satellite.sunlight_powers,  # 太阳能功率 W
+        "maneuver_powers": satellite.maneuver_powers,  # 机动功率 W
+        "imaging_powers": satellite.imaging_powers,  # 成像功率 W
+        "side_swing_angle_Max": satellite.side_swing_angle_Max,  # 最大侧摆角度
+        "pitch_angle_Max": satellite.pitch_angle_Max,  # 最大俯仰角度
+        "angle_velocity": satellite.angle_velocity  # 角度转动速度
     }
     return result
 
@@ -95,7 +147,7 @@ def get_all_satellites():
     name = name.strip() if name else ''
     results = []
     if not occ.satellite_network:
-        return jsonify({"error": "卫星网络未初始化，请先上传TLE文件和卫星参数"}), 400
+        return jsonify([])
     satellites = occ.satellite_network.satellites.values()
     if name == '':
         for satellite in satellites:
@@ -106,7 +158,8 @@ def get_all_satellites():
                 "battery": round(satellite.battery, 2),
                 "resolution": satellite.resolution_capability,
                 "orbit": satellite.alias,  # 卫星别名
-                "loadType": satellite.star_payload
+                "loadType": satellite.star_payload,
+                "is_available": satellite.is_available  # 是否可用（批量启停真实状态）
             })
         return results
     for satellite in satellites:
@@ -118,7 +171,8 @@ def get_all_satellites():
                 "battery": round(satellite.battery, 2),
                 "resolution": satellite.resolution_capability,
                 "orbit": satellite.alias,  # 卫星别名
-                "loadType": satellite.star_payload
+                "loadType": satellite.star_payload,
+                "is_available": satellite.is_available  # 是否可用（批量启停真实状态）
             })
     return results
 
@@ -140,6 +194,9 @@ def set_satellite_property(id):
     side_swing_angle_Max = form.get('side_swing_angle_Max', 45)  # 单位：弧度。最大侧摆角度
     pitch_angle_Max = form.get('pitch_angle_Max', 45)  # 单位：弧度。最大俯仰角度
     cloud_threshold = form.get('cloud_threshold', 800)  # 单位：km 红外不能作用的云层厚度阈值
+    load_type = form.get('loadType')  # 载荷类型：optical/infrared/SAR
+    resolution = form.get('resolution')  # 单位：m 分辨率
+    width_of_cloth = form.get('width')  # 单位：km 幅宽最大值
 
     for sat_name, sat in occ.satellite_network.satellites.items():
         if sat.sat_id == id:
@@ -155,28 +212,36 @@ def set_satellite_property(id):
             sat.side_swing_angle_Max = side_swing_angle_Max  # 单位：弧度。最大侧摆角度
             sat.pitch_angle_Max = pitch_angle_Max  # 单位：弧度。最大俯仰角度
             sat.cloud_threshold = cloud_threshold  # 单位：km 红外不能作用的云层厚度阈值
+            if load_type is not None:
+                sat.star_payload = load_type  # 载荷类型
+            if resolution is not None:
+                sat.resolution_capability = float(resolution)  # 单位：m 分辨率
+            if width_of_cloth is not None:
+                sat.width_of_cloth = float(width_of_cloth)  # 单位：km 幅宽最大值
             break
     return "ok"
 
 
 # 设置某一卫星不可用
-@satellite_bp.route('/setUnavailable/<int:id>', methods=['GET'])
+@satellite_bp.route('/setUnavailable/<int:id>', methods=['POST'])
 def set_unavailable(id):
     for sat_name, sat in occ.satellite_network.satellites.items():
-        if sat.is_available:
+        if sat.sat_id == id:
             sat.is_available = False
+            _sync_cluster_status_by_satellite(sat)
             break
-    return "ok"
+    return jsonify({"message": "ok"})
 
 
 # 设置某一卫星可用
-@satellite_bp.route('/setAvailable/<int:id>', methods=['GET'])
+@satellite_bp.route('/setAvailable/<int:id>', methods=['POST'])
 def set_available(id):
     for sat_name, sat in occ.satellite_network.satellites.items():
-        if not sat.is_available:
+        if sat.sat_id == id:
             sat.is_available = True
+            _sync_cluster_status_by_satellite(sat)
             break
-    return "ok"
+    return jsonify({"message": "ok"})
 
 
 # 返回地面站信息
@@ -199,9 +264,10 @@ def ground_station_info():
 def all_satellite_info():
     from flask import request
 
-    # 获取分页参数
-    page_num = request.args.get('pageNum', type=int)
-    page_size = request.args.get('pageSize', type=int)
+    # 获取分页参数（从请求体中获取）
+    form = request.json or {}
+    page_num = form.get('pageNum')
+    page_size = form.get('pageSize')
 
     satellites = list(occ.satellite_network.satellites.values())
     total = len(satellites)
@@ -294,6 +360,8 @@ def export_satellite_info(id):
         if sat.sat_id == id:
             satellite = sat
             break
+    if satellite is None:
+        return jsonify({"error": "未找到指定卫星"}), 404
     sat_dict = {
         "ID": satellite.sat_id,  # 卫星ID
         "卫星名": satellite.sat_name,  # 卫星名
@@ -330,12 +398,22 @@ def export_satellite_info(id):
     df.to_excel(temp_file.name, index=False, engine='openpyxl')
 
     # 发送文件给前端
-    return send_file(
+    response = send_file(
         temp_file.name,
         as_attachment=True,
         download_name=f'{satellite.sat_name}.xlsx',
         mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
     )
+
+    # 在响应发送后删除临时文件，避免临时文件泄漏
+    @response.call_on_close
+    def cleanup():
+        try:
+            os.unlink(temp_file.name)
+        except Exception as e:
+            print(f"Error deleting temporary file: {e}")
+
+    return response
 
 
 # 导出所有卫星信息
@@ -381,12 +459,22 @@ def export_all_satellite_info():
     df.to_excel(temp_file.name, index=False, engine='openpyxl')
 
     # 发送文件给前端
-    return send_file(
+    response = send_file(
         temp_file.name,
         as_attachment=True,
         download_name='所有卫星信息.xlsx',
         mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
     )
+
+    # 在响应发送后删除临时文件，避免临时文件泄漏
+    @response.call_on_close
+    def cleanup():
+        try:
+            os.unlink(temp_file.name)
+        except Exception as e:
+            print(f"Error deleting temporary file: {e}")
+
+    return response
 
 
 # 查询所有新任务
@@ -427,6 +515,8 @@ def get_all_finished_tasks():
 @satellite_bp.route('/getCurrentMultiplierAndTime', methods=['GET'])
 def get_current_multiplier_and_time():
     multiplier = request.args.get('multiplier', type=int)
+    if multiplier is None or multiplier < 1:
+        return jsonify({"error": "multiplier必须为大于等于1的整数"}), 400
     # current_time = request.args.get('currentTime', type=str)
     print("加速后的倍速：", multiplier)
     # print(current_time)
@@ -451,6 +541,14 @@ def get_multiplier():
 def save_image_path():
     task_id = request.args.get('id', type=int)
     image_path = request.args.get('path', type=str)
+    # 仅允许static/image/下的相对路径，并校验realpath不越出该目录，防止路径穿越
+    if not image_path or not image_path.startswith('static/image/'):
+        return jsonify({"error": "非法的图片路径"}), 400
+    backend_dir = os.path.dirname(os.path.dirname(__file__))
+    image_dir = os.path.realpath(os.path.join(backend_dir, 'static', 'image'))
+    real_path = os.path.realpath(os.path.join(backend_dir, image_path))
+    if not real_path.startswith(image_dir + os.sep):
+        return jsonify({"error": "非法的图片路径"}), 400
     old_task = OldTaskModel.query.filter_by(id=task_id).first()
     if old_task:
         old_task.is_photo = True
@@ -504,6 +602,7 @@ def set_satellite_unavailable(id):
     for satellite in occ.satellite_network.satellites.values():
         if satellite.sat_id == id:
             satellite.is_available = False
+            _sync_cluster_status_by_satellite(satellite)
             return 'ok'
     return 'error', 400
 
@@ -514,6 +613,7 @@ def set_satellite_available(id):
     for satellite in occ.satellite_network.satellites.values():
         if satellite.sat_id == id:
             satellite.is_available = True
+            _sync_cluster_status_by_satellite(satellite)
             return 'ok'
     return 'error', 400
 
@@ -593,23 +693,3 @@ def download_image_binary():
 
     db.session.commit()
     return jsonify({'status': 'success', 'message': '图片保存成功', 'path': task.path})
-
-
-# 计算数据组数
-def count_data_groups(data_str):
-    try:
-        data = ast.literal_eval(data_str)
-
-        # 如果是元组列表 [(x, y), ...]
-        if isinstance(data, list) and all(isinstance(item, tuple) for item in data):
-            return len(data)
-
-        # 如果是普通列表 [x, y]
-        elif isinstance(data, list) and len(data) == 2:
-            return 1
-
-        else:
-            return "1"
-
-    except Exception as e:
-        return 1

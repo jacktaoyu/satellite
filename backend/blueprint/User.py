@@ -1,18 +1,6 @@
 """
-用户类
+用户蓝图（当前登录/注册逻辑在 app.py 中直接实现，本蓝图保留供后续扩展）
 """
 from flask import Blueprint
-from model.UserModel import UserModel
 
-# 创建用户蓝图对象
 user_bp = Blueprint('user', __name__, url_prefix='/user')
-
-
-@user_bp.route('/login', methods=['POST'])
-def login():
-    pass
-
-
-@user_bp.route('/<int:user_id>', methods=['PUT'])
-def update(self):
-    return "修改用户信息"

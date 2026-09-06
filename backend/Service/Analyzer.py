@@ -205,7 +205,7 @@ class ScheduleAnalyzer:
                     if task and hasattr(task, 'priority'):
                         priority = task.priority
                 satellite_stats[sat_id]['task_priority_sum'] += priority
-                satellite_stats[sat_id]['undownlinked_tasks'] = item.get('final_stored_tasks')
+                satellite_stats[sat_id]['undownlinked_tasks'] = item.get('final_stored_tasks') or []
             satellite_stats[sat_id]['undownlinked_tasks_count'] = len(satellite_stats[sat_id]['undownlinked_tasks'])
             overall_undownlinked_count += satellite_stats[sat_id]['undownlinked_tasks_count']
             # 跟踪上一个任务的结束时间和姿态
@@ -241,11 +241,13 @@ class ScheduleAnalyzer:
                     try:
                         # 如果是NumPy数组，计算向量差的范数
                         attitude_change = np.linalg.norm(np.array(current_attitude) - np.array(prev_attitude))
-                    except:
+                    except Exception as e:
                         # 回退到简单的元素差异计算
+                        print(f"姿态范数计算失败，回退到元素差异计算: {e}")
                         try:
                             attitude_change = sum(abs(a - b) for a, b in zip(prev_attitude, current_attitude))
-                        except:
+                        except Exception as e2:
+                            print(f"姿态变化计算失败，使用默认值0: {e2}")
                             attitude_change = 0  # 无法计算姿态变化时的默认值
 
                     satellite_stats[sat_id]['attitude_change_total'] += attitude_change
@@ -452,12 +454,14 @@ class ScheduleAnalyzer:
             # 使用第一个调度项（通常一个任务只对应一个调度项）
             item = schedule_items[0]
 
-            # 计算分辨率比率（要求分辨率/卫星能力）
+            # 计算分辨率比率（任务要求分辨率/卫星能力）
             satellite = self.satellite_map.get(item['satellite_id'])
             if not satellite:
                 continue
 
-            resolution_ratio = satellite.resolution_capability / satellite.resolution_capability  # 值越小越好
+            # 任务未指定要求分辨率时按卫星能力计，避免 None 参与运算
+            task_resolution = task.resolution if task.resolution else satellite.resolution_capability
+            resolution_ratio = task_resolution / satellite.resolution_capability  # 值越小越好
 
             # 任务面积
             area = task.target_length * task.target_width
@@ -488,7 +492,7 @@ class ScheduleAnalyzer:
 
             # 保存任务统计信息
             task_stats[task_id] = {
-                'resolution_required': 1,
+                'resolution_required': task.resolution,
                 'resolution_provided': satellite.resolution_capability,
                 'resolution_ratio': resolution_ratio,
                 'actual_observation_time': actual_observation_time,
@@ -768,8 +772,8 @@ class PlanComparator:
                                 'cluster_tasks_count': 0
                             }
 
-                    cluster_before_storage = cluster_status[cluster_name].get('cluster_storage_cost')
-                    cluster_before_battery = cluster_status[cluster_name].get('cluster_battery_cost')
+                    cluster_before_storage = cluster_status[cluster_name].get('cluster_storage_cost') or 0
+                    cluster_before_battery = cluster_status[cluster_name].get('cluster_battery_cost') or 0
                     cluster_tasks_count = cluster_status[cluster_name].get('cluster_tasks_count', 0)
                     cluster_tasks_count += stats.get('task_count', 0)
                     status_storage_cap = stats.get('storage_cap', 0)
@@ -779,9 +783,10 @@ class PlanComparator:
                     cluster_after_storage = cluster_before_storage + stats.get('final_storage_usage_gb', 0)
                     cluster_after_battery = cluster_before_battery + stats.get('final_battery_usage_wh', 0)
                     print(f"卫星{sat_id}消耗存储{stats.get('final_storage_usage_gb', 0)}")
-                    cluster_before_time = cluster_status[cluster_name].get('cluster_time_cost')
-                    battery_utilization = cluster_after_battery / cluster_battery_cap
-                    storage_utilization = cluster_after_storage / cluster_storage_cap
+                    cluster_before_time = cluster_status[cluster_name].get('cluster_time_cost') or 0
+                    # 除零保护：容量为0时利用率置0，跳过除法
+                    battery_utilization = cluster_after_battery / cluster_battery_cap if cluster_battery_cap else 0
+                    storage_utilization = cluster_after_storage / cluster_storage_cap if cluster_storage_cap else 0
                     cluster_after_time = cluster_before_time + stats.get('observation_time_seconds', 0) + stats.get(
                         'maneuver_time_seconds', 0)
                     # print(f"卫星{sat_id}观测时间{stats.get('observation_time_seconds', 0)}")

@@ -170,12 +170,13 @@
 </template>
 
 <script>
-import { ref, reactive } from 'vue';
+import { ref, reactive, getCurrentInstance } from 'vue';
 import { ElMessage } from 'element-plus';
 
 export default {
   name: 'NetworkParameters',
   setup() {
+    const { proxy } = getCurrentInstance();
     const activeSensor = ref('optical');
     const sensorTypes = ['optical', 'SAR', 'infrared'];
 
@@ -269,15 +270,12 @@ export default {
           infrared: params.infrared
         };
 
-        const response = await this.$request.post(
-          'http://localhost:5001/networkParameters',
-          payload
-        );
+        await proxy.$request.post('/networkParameters', payload);
 
         ElMessage.success('网络参数配置成功');
-        console.log('提交响应:', response);
       } catch (error) {
-        ElMessage.error('配置失败: ' + (error.message || '未知错误'));
+        const errorMessage = error.response?.data?.message || error.message || '未知错误';
+        ElMessage.error('配置失败: ' + errorMessage);
         console.error('提交错误:', error);
       }
     };

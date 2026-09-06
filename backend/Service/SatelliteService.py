@@ -11,6 +11,34 @@ from pyproj import Transformer
 from random import choice
 from config import sunlight_powers, INTER_VAL_TIME, GROUND_RATE, GROUND_STATION
 
+# ----- 模块级 Skyfield / pyproj 单例缓存 -----
+_TIMESCALE = None
+_EPHEMERIS = None
+_TRANSFORMER_4326_4978 = None
+
+def get_timescale():
+    global _TIMESCALE
+    if _TIMESCALE is None:
+        _TIMESCALE = load.timescale()
+    return _TIMESCALE
+
+def get_ephemeris():
+    global _EPHEMERIS
+    if _EPHEMERIS is None:
+        _EPHEMERIS = load('./library/de421.bsp')
+    return _EPHEMERIS
+
+def get_transformer():
+    global _TRANSFORMER_4326_4978
+    if _TRANSFORMER_4326_4978 is None:
+        # 注意：不能加 always_xy=True，所有调用点均按 (lat, lon) 传参，依赖 EPSG:4326 默认轴序
+        _TRANSFORMER_4326_4978 = Transformer.from_crs("EPSG:4326", "EPSG:4978")
+    return _TRANSFORMER_4326_4978
+
+# 地球自转矩阵缓存（key: 儒略日, value: 3x3矩阵）
+_EARTH_ROTATION_CACHE = {}
+# -----------------------------------------------
+
 
 # 单个卫星
 class Satellite:
@@ -44,9 +72,10 @@ class Satellite:
         self.star_payload = kwargs.get('sensor_type')  # 卫星搭载的载荷类型
         self.resolution_capability = kwargs.get('resolution_capability', 1.0)  # 单位：m  分辨率
         self.width_of_cloth = kwargs.get('width_of_cloth', 50)  # 单位：km 幅宽
-        # 幅宽范围检查
+        # 幅宽范围检查：超出范围时打印警告并钳制到边界值
         if self.width_of_cloth < 12 or self.width_of_cloth > 50:
-            self.width_of_cloth = random.randint(12, 50)
+            print(f"警告: 卫星 {self.sat_name} 幅宽 {self.width_of_cloth}km 超出范围[12, 50]，已钳制到边界值")
+            self.width_of_cloth = min(max(self.width_of_cloth, 12), 50)
         self.angle_velocity = kwargs.get('angle_velocity', 1.0)  # 单位：弧度 载荷的角度转动速度，默认1°,1/180pi
         self.stable_time = kwargs.get('stable_time', 10)  # 稳定时间,默认10秒
         self.side_swing_angle = 0.0  # 单位：弧度。初始侧摆角度
@@ -145,7 +174,7 @@ class Satellite:
         # print("轨迹长度：", len(self.sat_trace), "条")
         # 更新卫星状态
         if self.sat_model:
-            ts = load.timescale()
+            ts = get_timescale()
             t = ts.utc(now_time.replace(tzinfo=timezone.utc))
             geocentric = self.sat_model.at(t)
             self.position = geocentric.position.km
@@ -203,15 +232,15 @@ class Satellite:
                 self.battery = self.battery_capacity
 
             if self.charge(t):
-                # 充电功率等于光照功率减去自然消耗功率
+                # 充电功率等于光照功率减去自然消耗功率（按时间倍速缩放仿真步长）
                 net_charge_rate = self.sunlight_powers - self.eclipse_powers
-                self.battery += net_charge_rate * INTER_VAL_TIME / 3600
+                self.battery += net_charge_rate * time_multiple * INTER_VAL_TIME / 3600
                 # 如果电量超过最大容量，则设置为最大容量
                 if self.battery > self.battery_capacity:
                     self.battery = self.battery_capacity
             else:
                 if self.battery > 0:
-                    self.battery -= self.eclipse_powers * INTER_VAL_TIME / 3600
+                    self.battery -= self.eclipse_powers * time_multiple * INTER_VAL_TIME / 3600
                 if self.battery <= 0:
                     self.battery = 0
                 #  # 充电方案2
@@ -231,15 +260,16 @@ class Satellite:
             t = t.utc_datetime()
             for dt in self.downlink_windows:
                 if dt[0] <= t < dt[1]:  # 如果当前时间处于数传窗口内
-                    nearest_station = choice(ground_stations)  # 随机选择一个地面站
-                    # distance = ((nearest_station.location[0] - self.sub_point[0]) ** 2 + (
-                    #         nearest_station.location[1] - self.sub_point[1]) ** 2)
-                    # # 找出距离卫星最近的地面站
-                    # for gs in ground_stations:
-                    #     distance1 = ((gs.location[0] - self.sub_point[0]) ** 2 + (
-                    #             gs.location[1] - self.sub_point[1]) ** 2)
-                    #     if distance1 < distance:
-                    #         nearest_station = gs
+                    # 找出距离卫星星下点最近的地面站（考虑经度环绕）
+                    nearest_station = None
+                    distance = float('inf')
+                    for gs in ground_stations:
+                        lon_diff = abs(gs.location[1] - self.sub_point[1])
+                        lon_diff = min(lon_diff, 360 - lon_diff)
+                        distance1 = ((gs.location[0] - self.sub_point[0]) ** 2 + lon_diff ** 2)
+                        if distance1 < distance:
+                            nearest_station = gs
+                            distance = distance1
 
                     # 设置连接关系
                     # 如果之前有连接的地面站，从该地面站的连接集合中移除卫星
@@ -257,9 +287,7 @@ class Satellite:
                         # 如果存储超过最大存储量，则设置为最大存储量
                         if self.storage > self.max_storage:
                             self.storage = self.max_storage
-                    for i in self.downlink_windows:
-                        if i[1] < t:
-                            self.downlink_windows.remove(i)
+                    self.downlink_windows = [w for w in self.downlink_windows if w[1] >= t]
                     break
                 elif t < dt[0]:
                     if self.connecting_ground_station:
@@ -305,6 +333,21 @@ class Satellite:
             # 读取轨迹数据
             self.sat_trace = self.load_data(f"./static/trace/{self.sat_name}_trace.pkl")
             self.downlink_windows = self.load_data(f"./static/downlink/{self.sat_name}_downlink.pkl")
+
+            # 缓存文件缺失或损坏时，现场计算初始轨迹（24小时窗口，间隔300秒）并写入缓存
+            if self.sat_trace is None:
+                self.sat_trace = []
+                self.downlink_windows = []
+                for i in range(0, self.time_for_calculating_timeWindow, self.interval_time):
+                    t = self.current_time_func(STRAT_TIME, i)
+                    geocentric = self.sat_model.at(t)
+                    self.sat_trace.append([geocentric, t])
+                    # 计算卫星的数传窗口
+                    self.calculate_down_window(t, geocentric)
+                os.makedirs("./static/trace", exist_ok=True)
+                os.makedirs("./static/downlink", exist_ok=True)
+                self.save_data(self.sat_trace, f"./static/trace/{self.sat_name}_trace.pkl")
+                self.save_data(self.downlink_windows, f"./static/downlink/{self.sat_name}_downlink.pkl")
 
             # if "Cluster_10_infrared_0.5" in self.belong_cluster:
             #     # if "Cluster_10_infrared_1.0" in self.belong_cluster:
@@ -352,18 +395,28 @@ class Satellite:
         更新轨迹窗口
         """
         # 卫星在过去一段时间的位置信息，现在要滑动时间窗口，删掉最旧的数据，保留最新的
-        for i in range(time_multiple):
-            if self.sat_trace[0][1].utc_datetime() < now_time.replace(tzinfo=timezone.utc):
-                # print("最旧的卫星轨迹数据点", self.sat_trace[0][1].utc_datetime(), "现在的系统时间", now_time)
-                del self.sat_trace[0]
-                # print("最新的卫星轨迹数据点", self.sat_trace[-1][1].utc_datetime())
-            if len(self.sat_trace) < self.length_of_timeWindow:
-                t = self.current_time_func(self.sat_trace[-1][1].utc_datetime(), self.interval_time)
-                geocentric = self.sat_model.at(t)
-                self.sat_trace.append([geocentric, t])
+        # 使用索引一次性批量删除过期数据，避免多次 del self.sat_trace[0] 的 O(n) 开销
+        cutoff = now_time.replace(tzinfo=timezone.utc)
+        idx = 0
+        while idx < len(self.sat_trace) and self.sat_trace[idx][1].utc_datetime() < cutoff:
+            idx += 1
+        if idx > 0:
+            self.sat_trace = self.sat_trace[idx:]
 
-                # 更新数传窗口
-                self.calculate_down_window(t, geocentric)
+        # 补充新数据
+        if not self.sat_trace:
+            # 轨迹为空时以当前时间为种子点，避免 sat_trace[-1] 越界
+            t = self.current_time_func(now_time, 0)
+            geocentric = self.sat_model.at(t)
+            self.sat_trace.append([geocentric, t])
+            self.calculate_down_window(t, geocentric)
+        while len(self.sat_trace) < self.length_of_timeWindow:
+            t = self.current_time_func(self.sat_trace[-1][1].utc_datetime(), self.interval_time)
+            geocentric = self.sat_model.at(t)
+            self.sat_trace.append([geocentric, t])
+
+            # 更新数传窗口
+            self.calculate_down_window(t, geocentric)
 
             # 更新充电窗口
             # if self.charge(t):
@@ -386,7 +439,7 @@ class Satellite:
         theta_pitch_max = np.radians(self.pitch_angle_Max)
         is_visible = False
         for lat, lon in GROUND_STATION.values():
-            transformer = Transformer.from_crs("EPSG:4326", "EPSG:4978")
+            transformer = get_transformer()
             x_g, y_g, z_g = transformer.transform(lat, lon, 0)
             P_ground_ECEF = np.array([x_g, y_g, z_g])
             t = now_time  # 获取时间点
@@ -506,10 +559,10 @@ class Satellite:
         lat, lon = task.target_location
 
         # 地面点坐标转换（WGS84经纬度 → ECEF）
-        transformer = Transformer.from_crs("EPSG:4326", "EPSG:4978")
+        transformer = get_transformer()
         x_g, y_g, z_g = transformer.transform(lat, lon, 0)
         P_ground_ECEF = np.array([x_g, y_g, z_g])
-        ts = load.timescale()
+        ts = get_timescale()
         windows = []
         # 使用初始化时计算的轨道覆盖范围
         d_max = self.d_max
@@ -539,6 +592,8 @@ class Satellite:
             if np.any(np.isnan(P_ground_ECEF)) or np.any(np.isinf(P_ground_ECEF)):
                 print("异常P_ground_ECEF:", P_ground_ECEF, "对应时间t:", t)
                 print("任务id：", task.task_id, "任务位置：", task.target_location)
+                # 非法坐标（如纬度超出±90°）转换结果为inf/nan，跳过该任务避免规划线程崩溃
+                return
 
             # 地球自转修正：ECEF → ECI
             P_ground_ECI = self.earth_rotation_matrix(t) @ P_ground_ECEF
@@ -695,7 +750,7 @@ class Satellite:
 
     def earth_rotation_matrix(self, t):
         """
-        计算地球自转矩阵，用于ECEF到ECI的坐标转换
+        计算地球自转矩阵，用于ECEF到ECI的坐标转换（带缓存）
 
         参数:
         t: skyfield时间对象
@@ -703,10 +758,12 @@ class Satellite:
         返回:
         旋转矩阵(3x3)
         """
+        global _EARTH_ROTATION_CACHE
         try:
-            # 计算地球旋转角度
-            # 地球自转角速度 (rad/s)
-            omega = 7.2921159e-5
+            # 使用儒略日作为缓存key（保留6位小数，约0.086秒精度）
+            cache_key = round(t.tt, 6)
+            if cache_key in _EARTH_ROTATION_CACHE:
+                return _EARTH_ROTATION_CACHE[cache_key]
 
             # 获取儒略日
             julian_day = t.tt
@@ -739,6 +796,7 @@ class Satellite:
             if np.any(np.isnan(rotation_matrix)) or np.any(np.isinf(rotation_matrix)):
                 raise ValueError("Invalid values in rotation matrix")
 
+            _EARTH_ROTATION_CACHE[cache_key] = rotation_matrix
             return rotation_matrix
         except Exception as e:
             print(f"Error in earth_rotation_matrix: {e}")
@@ -797,7 +855,7 @@ class Satellite:
         @param time_steps: 时间步（秒数）
         @return: 从Start_Time开始的当前时间（skyfield时间对象）
         """
-        ts = load.timescale()
+        ts = get_timescale()
 
         # 添加时间差（自动处理进位）
         new_datetime = START_TIME + timedelta(seconds=time_steps)
@@ -906,9 +964,9 @@ class Satellite:
         """
         try:
             # 加载星历数据和时间尺度
-            ts = load.timescale()
-            # 使用时自动加载
-            planets = load('./library/de421.bsp')
+            ts = get_timescale()
+            # 使用时自动加载（已缓存）
+            planets = get_ephemeris()
             earth = planets['earth']
             sun = planets['sun']
 
@@ -1018,7 +1076,7 @@ class Satellite:
                         R_earth = 6378.0
 
                         # 使用当前时间计算卫星位置
-                        ts = load.timescale()
+                        ts = get_timescale()
                         current_time = ts.now()
 
                         # 获取卫星位置
@@ -1050,6 +1108,10 @@ class Satellite:
     def load_data(self, filename):
         """从文件读取轨迹数据"""
         if os.path.exists(filename):
-            with open(filename, 'rb') as f:
-                return pickle.load(f)
+            try:
+                with open(filename, 'rb') as f:
+                    return pickle.load(f)
+            except Exception as e:
+                print(f"警告: 缓存文件 {filename} 损坏，将重新计算: {e}")
+                return None
         return None  # 或返回默认值

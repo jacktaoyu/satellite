@@ -63,6 +63,7 @@
     <!-- 表格区域 -->
     <el-card shadow="never" class="table-card">
       <el-table 
+        ref="table"
         :data="tableData" 
         stripe 
         v-loading="loading"
@@ -83,7 +84,7 @@
         <el-table-column prop="battery" label="电池(Wh)" width="100" sortable />
         <el-table-column prop="storage" label="存储(GB)" width="100" sortable />
         <el-table-column prop="resolution" label="分辨率(m)" width="110" />
-        <el-table-column label="状态" width="90">
+        <!-- <el-table-column label="状态" width="90">
           <template #default="scope">
             <el-switch
               v-model="scope.row.is_available"
@@ -93,7 +94,7 @@
               @change="(val) => handleStatusChange(scope.row, val)"
             />
           </template>
-        </el-table-column>
+        </el-table-column> -->
         <el-table-column label="操作" width="220" fixed="right">
           <template #default="scope">
             <el-button link type="primary" :icon="View" @click="showDetail(scope.row)">详情</el-button>
@@ -246,12 +247,13 @@ export default {
         }
       } catch (err) {
         console.error('获取卫星列表失败:', err);
-        if (err.response?.status === 503 || 
-            err.response?.data?.error?.includes('尚未初始化')) {
-          ElMessage.warning('系统尚未初始化完成，请先上传 TLE 文件和卫星参数文件');
-        } else {
-          ElMessage.error('获取卫星列表失败: ' + (err.response?.data?.error || err.message || '未知错误'));
-        }
+        // const errorMessage = err.response?.data?.error || err.response?.data?.message || err.message || '';
+        // if (err.response?.status === 503 || String(errorMessage).includes('未初始化')) {
+        //   // ElMessage.warning('系统尚未初始化完成，请先上传 TLE 文件和卫星参数文件');
+        //   ElMessage.error('获取卫星列表失败: ' + errorMessage);
+        // } else {
+        //   ElMessage.error('获取卫星列表失败: ' + errorMessage);
+        // }
         this.allSatellites = [];
         this.tableData = [];
         this.totalNum = 0;
@@ -485,7 +487,9 @@ export default {
         if (res.data) {
           this.editForm = { ...this.editForm, ...res.data };
         }
-      }).catch(() => {});
+      }).catch(() => {
+        ElMessage.error('获取卫星详情失败');
+      });
       this.editDialogVisible = true;
     },
 
@@ -509,7 +513,7 @@ export default {
 
     // 详情
     showDetail(row) {
-      this.$router.push(`/satellite/weixing/info/${row.name}`);
+      this.$router.push(`/satellite/Weixing/info/${row.name}`);
     }
   }
 };

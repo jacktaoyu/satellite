@@ -15,16 +15,15 @@ cluster_bp = Blueprint('cluster', __name__, url_prefix='/clusters')
 def get_orbits():
     if not occ.satellite_network:
         return jsonify({
-            'status': 'error',
-            'message': '卫星网络未初始化，请先上传TLE文件和卫星参数'
-        }), 400
+            'status': 'success',
+            'orbits': []
+        })
     orbits = []
     for orbit, info in occ.satellite_network.orbit_info.items():
         orbits.append({orbit: info})
     return jsonify({
         'status': 'success',
         'orbits': orbits  # 返回轨道列表
-        # 'orbits': list(occ.satellite_network.orbits)
     })
 
 
@@ -33,9 +32,9 @@ def get_orbits():
 def info_by_orbits():
     if not occ.satellite_network:
         return jsonify({
-            'status': 'error',
-            'message': '卫星网络未初始化，请先上传TLE文件和卫星参数'
-        }), 400
+            'status': 'success',
+            'resolution_map': {}
+        })
     data = request.json
     orbits = data.get('orbits')
     print(data)
@@ -188,7 +187,7 @@ def get_clusters_by_page():
         data = request.args or {}
     page = int(data.get('page', 1))
     per_page = int(data.get('per_page', 10))
-    cluster_name = data.get('cluster_name', None).strip()
+    cluster_name = (data.get('cluster_name') or '').strip()
 
     # 查询
     query = ClusterModel.query
@@ -197,6 +196,14 @@ def get_clusters_by_page():
 
     pagination = query.paginate(page=page, per_page=per_page, error_out=False)
     clusters = pagination.items
+
+    # 卫星网络未初始化时无法获取轨道信息
+    orbit_info = getattr(occ.satellite_network, 'orbit_info', None) if occ.satellite_network else None
+    if clusters and orbit_info is None:
+        return jsonify({
+            'status': 'error',
+            'message': '卫星网络未初始化'
+        }), 400
 
     results = []
     for cluster in clusters:
@@ -209,7 +216,7 @@ def get_clusters_by_page():
             orbits.append(int(orbit))
 
         for orbit in orbits:
-            orbits_list.append(occ.satellite_network.orbit_info[orbit])
+            orbits_list.append(orbit_info.get(orbit, f"第{orbit}轨道"))
 
         orbits_string = "&&".join(orbits_list)
 
@@ -218,6 +225,7 @@ def get_clusters_by_page():
             'name': cluster.name,
             'number': cluster.satellite_count,
             'orbit': orbits_string,
+            'orbit_ids': orbits,  # 纯轨道ID列表，供前端编辑弹窗直接回显（避免从展示文本解析出错）
             'satellite_count': cluster.satellite_count,
             'payload_resolution': cluster.payload_resolution,
             'satellite_names': satellite_names,
@@ -243,8 +251,20 @@ def get_clusters_by_page():
 # 根据卫星id级联查询星簇
 @cluster_bp.route('/getClusterBySatelliteId/<int:satellite_id>', methods=['GET'])
 def get_cluster_by_satellite_id(satellite_id):
+    # 卫星ID与卫星名无固定换算规则，先从卫星网络中按 sat_id 找到真实卫星名（格式 Sat_{轨道}_{序号}）
+    sat_name = None
+    if occ.satellite_network:
+        for sat in occ.satellite_network.satellites.values():
+            if sat.sat_id == satellite_id:
+                sat_name = sat.sat_name
+                break
+    if sat_name is None:
+        return jsonify({
+            'status': 'error',
+            'message': '未找到指定卫星'
+        }), 404
     # 先通过关系表找到对应的cluster_id
-    relations = ClusterStarRelation.query.filter_by(star_id=satellite_id).all()
+    relations = ClusterStarRelation.query.filter_by(sat_name=sat_name).all()
     cluster_ids = [relation.cluster_id for relation in relations]
 
     # 再通过cluster_id查询星簇信息
@@ -255,8 +275,8 @@ def get_cluster_by_satellite_id(satellite_id):
         {
             'id': cluster.id,
             'name': cluster.name,
-            'number': cluster.number,
-            'orbit': cluster.orbit,
+            'number': cluster.satellite_count,
+            'orbit': cluster.orbits,
             'payload_resolution': cluster.payload_resolution
             # 'satellite_names':
         } for cluster in clusters
@@ -279,6 +299,13 @@ def get_all_clusters():
     clusters = ClusterModel.query.all()
     results = []
     if clusters:
+        # 卫星网络未初始化时无法获取轨道信息
+        orbit_info = getattr(occ.satellite_network, 'orbit_info', None) if occ.satellite_network else None
+        if orbit_info is None:
+            return jsonify({
+                'status': 'error',
+                'message': '卫星网络未初始化'
+            }), 400
         for cluster in clusters:
             # 查询关联的卫星名
             relations = ClusterStarRelation.query.filter_by(cluster_id=cluster.id).all()
@@ -289,7 +316,7 @@ def get_all_clusters():
                 orbits.append(int(orbit))
 
             for orbit in orbits:
-                orbits_list.append(occ.satellite_network.orbit_info[orbit])
+                orbits_list.append(orbit_info.get(orbit, f"第{orbit}轨道"))
 
             orbits_string = "&&".join(orbits_list)
 
@@ -306,6 +333,8 @@ def get_all_clusters():
             }
             results.append(result)
         return results
+    # 星簇为空时同样返回空列表，避免无返回值导致 Flask 500
+    return results
     # results = [
     #     {
     #         'id': cluster.id,
@@ -336,9 +365,14 @@ def get_all_clusters_Name():
             result = {
                 'id': cluster.id,
                 'name': cluster.name,
+                'status': cluster.status,  # 可用状态，供任务迁移目标星簇过滤
+                'orbits': cluster.orbits,  # 轨道ID串（如 "1,2"），供适配性过滤
+                'payload_resolution': cluster.payload_resolution,  # 载荷及分辨率（如 "SAR:0.5,1|optical:0.5"），供适配性过滤
             }
             results.append(result)
         return results
+    return results
+
 
 
 # 根据星簇名查询星簇
@@ -347,7 +381,7 @@ def get_cluster_by_name(cluster_name):
     cluster = ClusterModel.query.filter_by(name=cluster_name).first()
     if cluster:
         # 查询关联的卫星名
-        relations = ClusterStarRelation.query.filter_by(cluster_id=cluster.cluster_id).all()
+        relations = ClusterStarRelation.query.filter_by(cluster_id=cluster.id).all()
         satellite_names = [relation.sat_name for relation in relations]
 
         result = {
@@ -372,6 +406,11 @@ def get_cluster_by_name(cluster_name):
 # 根据星簇名，返回星簇详情
 @cluster_bp.route('/getClusterDetailsByName/<string:cluster_name>', methods=['GET'])
 def get_cluster_details_by_name(cluster_name):
+    if not occ.satellite_network:
+        return jsonify({
+            'status': 'error',
+            'message': '卫星网络未初始化，请先上传TLE文件和卫星参数'
+        }), 400
     cluster = None
     for _cluster in occ.satellite_network.clusters:
         if _cluster.name == cluster_name:
@@ -422,14 +461,20 @@ def set_unavailable_for_all_stars_in_cluster(cluster_id):
     :param cluster_id:
     :return:
     """
+    if not occ.satellite_network:
+        return jsonify({
+            'status': 'error',
+            'message': '卫星网络未初始化，请先上传TLE文件和卫星参数'
+        }), 400
     for cluster in occ.satellite_network.clusters:
         if cluster.cluster_id == cluster_id:
             for star in cluster.stars:
                 star.is_available = False
             break
     cluster_model = ClusterModel.query.filter_by(id=cluster_id).first()
-    cluster_model.status = False
-    db.session.commit()
+    if cluster_model:
+        cluster_model.status = False
+        db.session.commit()
     return jsonify({
         'status': 'success',
         'message': '星簇内所有卫星已被设置为不可用'
@@ -444,14 +489,20 @@ def set_available_for_all_stars_in_cluster(cluster_id):
     :param cluster_id:
     :return:
     """
+    if not occ.satellite_network:
+        return jsonify({
+            'status': 'error',
+            'message': '卫星网络未初始化，请先上传TLE文件和卫星参数'
+        }), 400
     for cluster in occ.satellite_network.clusters:
         if cluster.cluster_id == cluster_id:
             for star in cluster.stars:
                 star.is_available = True
             break
     cluster_model = ClusterModel.query.filter_by(id=cluster_id).first()
-    cluster_model.status = True
-    db.session.commit()
+    if cluster_model:
+        cluster_model.status = True
+        db.session.commit()
     return jsonify({
         'status': 'success',
         'message': '星簇内所有卫星已被设置为可用'
@@ -467,6 +518,18 @@ def re_plan():
     cluster_name1 = form.get('oldCluster')
     cluster_name2 = form.get('newCluster')
 
+    if not occ.satellite_network:
+        return jsonify({
+            'status': 'error',
+            'message': '卫星网络未初始化，请先上传TLE文件和卫星参数'
+        }), 400
+    # 目标星簇不可用时拒绝迁移，避免任务迁入无法执行的星簇
+    target = ClusterModel.query.filter_by(name=cluster_name2).first()
+    if target and not target.status:
+        return jsonify({
+            'status': 'error',
+            'message': f'目标星簇 {cluster_name2} 当前不可用，无法迁移任务'
+        }), 400
     occ.replan(cluster_name1, cluster_name2)
     return jsonify({
         'status': 'success',
@@ -480,13 +543,19 @@ def export_all_clusters():
     data = []
     clusters = ClusterModel.query.all()
 
-    # 将任务数据转换为列表
+    # 将星簇数据转换为列表
     for cluster in clusters:
+        # 查询关联的卫星名
+        relations = ClusterStarRelation.query.filter_by(cluster_id=cluster.id).all()
+        satellite_names = [relation.sat_name for relation in relations]
         cluster_dict = {
-            '任务ID': cluster.id,
-            '任务名称': cluster.name,
+            '星簇ID': cluster.id,
+            '星簇名称': cluster.name,
             '卫星轨道': cluster.orbits,
             '载荷及分辨率(m)': cluster.payload_resolution,
+            '卫星数量': cluster.satellite_count,
+            '包含卫星': ','.join(satellite_names),
+            '状态': '可用' if cluster.status else '不可用',
         }
         data.append(cluster_dict)
 
@@ -504,9 +573,19 @@ def export_all_clusters():
     df.to_excel(temp_file.name, index=False, engine='openpyxl')
 
     # 发送文件给前端
-    return send_file(
+    response = send_file(
         temp_file.name,
         as_attachment=True,
         download_name='星簇信息.xlsx',
         mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
     )
+
+    # 在响应发送后删除临时文件，避免临时文件泄漏
+    @response.call_on_close
+    def cleanup():
+        try:
+            os.unlink(temp_file.name)
+        except Exception as e:
+            print(f"Error deleting temporary file: {e}")
+
+    return response

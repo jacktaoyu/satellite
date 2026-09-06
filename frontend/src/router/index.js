@@ -1,4 +1,5 @@
 import { createRouter, createWebHistory } from "vue-router";
+import { ElMessage } from "element-plus";
 import NProgress from "nprogress"; //进度条
 import "nprogress/nprogress.css";
 
@@ -11,7 +12,14 @@ const router = createRouter({
   routes: [
     {
       path: "/",
-      redirect: "/login",
+      redirect: "/portal",
+      hidden: true,
+    },
+    {
+      path: "/portal",
+      name: "portal",
+      meta: { title: "首页" },
+      component: () => import("@/views/portal/Portal.vue"),
       hidden: true,
     },
     {
@@ -31,7 +39,8 @@ const router = createRouter({
     {
       path: "/satellite",
       name: "satellite",
-      meta: { title: "卫星" },
+      // 该路由下所有子页面均为管理员专属（main.vue 菜单仅 isAdmin==1 时渲染）
+      meta: { title: "卫星", requiresAdmin: true },
       component: () => import("@/views/main/main.vue"),
       children: [
         {
@@ -43,7 +52,7 @@ const router = createRouter({
         {
           path: "Weixing",
           meta: { title: "卫星" },
-          component: () => import("@/views/weixing/weixing.vue"),
+          component: () => import("@/views/weixing/Weixing.vue"),
         },
         {
           path: "Weixing/info/:name",
@@ -76,6 +85,11 @@ const router = createRouter({
           component: () => import("@/views/Xingcu.vue"),
         },
         {
+          path: "ground_station",
+          meta: { title: "地面站" },
+          component: () => import("@/views/GroundStation.vue"),
+        },
+        {
           path: "Yongli",
           name: "Yongli",
           meta: { title: "用例" },
@@ -93,25 +107,25 @@ const router = createRouter({
           meta: { title: "系统设置" },
           component: () => import("@/views/SystemSettings.vue"),
         },
+        {
+          path: "network_parameters",
+          name: "network_parameters",
+          meta: { title: "按载荷批量设置" },
+          component: () => import("@/views/NetworkParameters.vue"),
+        },
         
       ],
     },
 
-    // {
-    //   path: "/satellite",
-    //   name: "satellite",
-    //   meta: { title: "卫星" },
-    //   component: () => import("@/views/main/main.vue"),
-    //   children: [
-    //     {
-    //       path: "example",
-    //       name: "example",
-    //       meta: { title: "示例" },
-    //       component: () => import("@/components/BackendData.vue"),
-    //     },
-    //   ],
-    // },
-
+    {
+      // 兜底路由：未匹配路径复用登录页（登录页含返回首页入口，且全局守卫会按 token 状态重定向），
+      // 保留现状，后续如有需要可替换为独立的 404 页面
+      path: "/:pathMatch(.*)*",
+      name: "not-found",
+      meta: { title: "页面不存在" },
+      component: () => import("@/views/login/Login.vue"),
+      hidden: true,
+    },
   ],
 });
 
@@ -121,11 +135,19 @@ import defaultSettings from "@/settings";
 router.beforeEach((to, from, next) => {
   NProgress.start();
   document.title = `${to.meta.title || ''} - ${defaultSettings.title}`;
+  // 注意：此处仅做 localStorage 层面的 UX 拦截，token 可能已过期或伪造；
+  // 真正的鉴权在服务端（后端全局 before_request 校验 Ac-Token），服务端返回 401 时由 request.js / authFetch.js 统一清理登录态并跳转登录页
   let token = localStorage.getItem("token");
   if (token) {
+    // 管理员专属路由：非管理员重定向到首页并提示
+    if (to.matched.some((record) => record.meta.requiresAdmin) && localStorage.getItem("isAdmin") != 1) {
+      ElMessage.warning("无权限访问该页面，请联系管理员");
+      next({ path: "/portal" });
+      return;
+    }
     next();
   } else {
-    if (to.path === "/login" || to.path === "/register") {
+    if (to.path === "/portal" || to.path === "/login" || to.path === "/register") {
       next();
     } else {
       next({
@@ -141,145 +163,3 @@ router.afterEach(() => {
 });
 
 export default router;
-
-
-
-
-// import { createRouter, createWebHistory } from "vue-router";
-// import NProgress from "nprogress"; //进度条
-// import "nprogress/nprogress.css";
-// import defaultSettings from "../settings";
-
-// NProgress.configure({
-//   showSpinner: false, //通过将其设置为 false 来关闭加载微调器。
-// });
-
-// const routes = [
-//   {
-//     path: '/',
-//     redirect: '/login'
-//   },
-//   {
-//     path: '/login',
-//     name: 'login',
-//     component: () => import('../views/login/Login.vue')
-//   },
-//   {
-//     path: '/register',
-//     name: 'register',
-//     component: () => import('../views/login/Register.vue')
-//   },
-//   {
-//     path: '/home',
-//     name: 'home',
-//     component: () => import('../components/BackendData.vue')
-//   },
-//   // {
-//   //   path: "/media",
-//   //   name: "media",
-//   //   meta: { title: "媒体" },
-//   //   component: () => import("@/views/main/main.vue"),
-//   //   children: [
-//   //     {
-//   //       path: "list",
-//   //       name: "media-list",
-//   //       meta: { title: "媒体资源列表" },
-//   //       component: () => import("@/views/media/media-list.vue"),
-//   //     },
-//   //   ],
-//   // },
-
-//   // {
-//   //   path: "/user",
-//   //   name: "user",
-//   //   meta: { title: "用户" },
-//   //   component: () => import("@/views/main/main.vue"),
-//   //   children: [
-//   //     {
-//   //       path: "list",
-//   //       name: "user-list",
-//   //       meta: { title: "出版社管理" },
-//   //       component: () => import("@/views/user/user-list.vue"),
-//   //     },
-//   //   ],
-//   // },
-
-//   // {
-//   //   path: "/dd",
-//   //   name: "dd",
-//   //   meta: { title: "用户" },
-//   //   component: () => import("@/views/main/main.vue"),
-//   //   children: [
-//   //     {
-//   //       path: "ddgl",
-//   //       name: "user-list",
-//   //       meta: { title: "用户列表" },
-//   //       component: () => import("@/views/ddgl/ddgl.vue"),
-//   //     },
-//   //   ],
-//   // },
-
-// //   // 卖家管理
-// //   {
-// //     path: "/cs",
-// //     name: "cs",
-// //     meta: { title: "卖家管理" },
-// //     component: () => import("@/views/main/main.vue"),
-// //     children: [
-// //       {
-// //         path: "csgl",
-// //         name: "csgl",
-// //         meta: { title: "卖家管理" },
-// //         component: () => import("@/views/csgl/csgl.vue"),
-// //       },
-// //     ],
-// //   },
-
-// //   // 商品管理
-// //   {
-// //     path: "/sp",
-// //     name: "sp",
-// //     meta: { title: "商品管理" },
-// //     component: () => import("@/views/main/main.vue"),
-// //     children: [
-// //       {
-// //         path: "spgl",
-// //         name: "spgl",
-// //         meta: { title: "商品管理" },
-// //         component: () => import("@/views/spgl/spgl.vue"),
-// //       },
-// //     ],
-// //   },
-// ]
-
-// const router = createRouter({
-//   history: createWebHistory(import.meta.env.BASE_URL),
-//   routes
-// });
-
-// import defaultSettings from "@/settings";
-
-// //路由全局前置钩子
-// router.beforeEach((to, from, next) => {
-//   NProgress.start();
-//   document.title = `${defaultSettings.title}`;
-//   let token = localStorage.getItem("token");
-//   if (token) {
-//     next();
-//   } else {
-//     if (to.path == "/login") {
-//       next();
-//     } else {
-//       next({
-//         path: "/login",
-//       });
-//     }
-//   }
-// });
-
-// // //路由全局后置钩子
-// router.afterEach(() => {
-//   NProgress.done();
-// });
-
-// export default router;

@@ -322,8 +322,8 @@ class AntColonyOptimizer:
                     downlink_end = downlink_window.get('end', downlink_window.get('end_time'))
                     if not downlink_start or not downlink_end:
                         continue
-                except:
-                    # print(f"  无法解析下行窗口 #{window_idx}: {downlink_window}")
+                except Exception as e:
+                    print(f"  无法解析下行窗口 #{window_idx}: {downlink_window}: {e}")
                     continue
 
             # 检查下行窗口是否与当前时间段重叠
@@ -446,10 +446,16 @@ class AntColonyOptimizer:
 
             # 并行处理蚂蚁的路径构建
             if parallel and num_ants >= 10:
-                num_processes = min(cpu_count(), 8)
-                with Pool(processes=num_processes) as pool:
-                    ant_args = [(alpha, beta, heuristic_info, heuristic_weight) for _ in range(num_ants)]
-                    ant_results = pool.map(self._ant_build_solution, ant_args)
+                try:
+                    num_processes = min(cpu_count(), 8)
+                    with Pool(processes=num_processes) as pool:
+                        ant_args = [(alpha, beta, heuristic_info, heuristic_weight) for _ in range(num_ants)]
+                        ant_results = pool.map(self._ant_build_solution, ant_args)
+                except Exception as e:
+                    # daemon 线程中无法创建子进程，回退为串行执行
+                    print(f"多进程评估失败，回退为串行执行: {e}")
+                    ant_results = [self._ant_build_solution((alpha, beta, heuristic_info, heuristic_weight)) for _ in
+                                   range(num_ants)]
             else:
                 ant_results = [self._ant_build_solution((alpha, beta, heuristic_info, heuristic_weight)) for _ in
                                range(num_ants)]

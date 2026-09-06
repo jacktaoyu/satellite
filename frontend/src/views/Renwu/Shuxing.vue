@@ -19,7 +19,10 @@
           <el-select v-model="search.taskType" placeholder="任务类型" clearable style="width: 140px" @change="handleSearch">
             <el-option label="点目标" value="点目标" />
             <el-option label="区域目标" value="区域目标" />
+            <el-option label="广域目标" value="广域目标" />
             <el-option label="移动目标" value="移动目标" />
+            <el-option label="静态观测" value="静态观测" />
+            <el-option label="周期观测" value="周期观测" />
           </el-select>
           <el-select v-model="search.sensorType" placeholder="载荷类型" clearable style="width: 120px" @change="handleSearch">
             <el-option label="SAR" value="SAR" />
@@ -41,6 +44,7 @@
         </div>
         <div class="search-right">
           <el-button type="success" :icon="Plus" @click="showAddDialog">新增任务</el-button>
+          <el-button type="primary" plain :icon="Download" @click="exportAllTasks">导出当前列表</el-button>
           <el-button :icon="Refresh" circle title="刷新" @click="refreshList" :loading="loading" />
         </div>
       </div>
@@ -102,7 +106,7 @@
           >
             <el-table-column type="selection" width="55" reserve-selection />
             <el-table-column prop="id" label="ID" width="60" />
-            <el-table-column prop="task_name" label="任务名称" width="150" show-overflow-tooltip />
+            <el-table-column prop="task_name" label="任务名称" width="140" show-overflow-tooltip />
             <el-table-column prop="type" label="任务类型" width="100">
               <template #default="scope">
                 <el-tag size="small" :type="getTaskTypeType(scope.row.type)">
@@ -117,11 +121,16 @@
                 <span v-else>-</span>
               </template>
             </el-table-column>
-            <el-table-column prop="sensorType" label="载荷" width="90" />
-            <el-table-column prop="resolution" label="分辨率(m)" width="100" />
-            <el-table-column prop="assignedSatelliteName" label="分配卫星" width="120" />
-            <el-table-column prop="clusterName" label="指定星簇" width="120" />
-            <el-table-column prop="status" label="状态" width="100">
+            <el-table-column prop="sensorType" label="载荷" width="80" />
+            <el-table-column prop="resolution" label="分辨率(m)" width="90" />
+            <el-table-column prop="assignedSatelliteName" label="分配卫星" width="110" />
+            <el-table-column prop="clusterName" label="指定星簇" width="100" />
+            <el-table-column label="合并任务ID" width="100">
+              <template #default="scope">
+                <span>{{ scope.row.friendTask && scope.row.friendTask !== 'None' ? scope.row.friendTask : '-' }}</span>
+              </template>
+            </el-table-column>
+            <el-table-column prop="status" label="状态" width="90">
               <template #default="scope">
                 <el-tag size="small" :type="getStatusType(scope.row.status)">
                   {{ scope.row.status === 'Success' ? '成功' : scope.row.status }}
@@ -129,7 +138,14 @@
               </template>
             </el-table-column>
             <el-table-column prop="startTime" label="开始时间" width="160" />
-            <el-table-column label="操作" width="280" fixed="right">
+            <el-table-column prop="endTime" label="结束时间" width="160" />
+            <el-table-column label="定时时间" width="160">
+              <template #default="scope">
+                <span>{{ scope.row.appointTime && scope.row.appointTime !== 'None' ? scope.row.appointTime : '-' }}</span>
+              </template>
+            </el-table-column>
+            <el-table-column prop="targetLocation" label="区域信息" width="180" show-overflow-tooltip />
+            <el-table-column label="操作" width="380" fixed="right">
               <template #default="scope">
                 <el-button link type="primary" :icon="View" @click="showDetail(scope.row)">详情</el-button>
                 <!-- 启动/暂停按钮 -->
@@ -141,7 +157,7 @@
                   @click="startTask(scope.row)"
                 >启动</el-button>
                 <el-button 
-                  v-if="scope.row.status === '执行中' || scope.row.status === '运行中'" 
+                  v-if="scope.row.status === '执行中' || scope.row.status === '运行中' || scope.row.status === '正在执行'" 
                   link 
                   type="warning" 
                   :icon="VideoPause" 
@@ -154,6 +170,8 @@
                   :icon="CircleClose" 
                   @click="endTask(scope.row)"
                 >结束</el-button>
+                <el-button link type="primary" :icon="Edit" @click="showEditDialog(scope.row)">编辑</el-button>
+                <el-button link type="success" :icon="Download" @click="exportTask(scope.row)">导出</el-button>
                 <el-popconfirm title="确定要删除该任务吗?" @confirm="deleteTask(scope.row.id)">
                   <template #reference>
                     <el-button link type="danger" :icon="Delete">删除</el-button>
@@ -211,17 +229,20 @@
       </div>
     </el-card>
 
-    <!-- 新增任务弹窗 -->
-    <el-dialog v-model="addDialogVisible" title="新增任务" width="600px" destroy-on-close>
+    <!-- 新增/编辑任务弹窗 -->
+    <el-dialog v-model="addDialogVisible" :title="editingTaskId ? '编辑任务' : '新增任务'" width="600px" destroy-on-close @closed="handleDialogClosed">
       <el-form :model="taskForm" label-width="120px" :rules="taskRules" ref="taskFormRef">
         <el-form-item label="任务名称" prop="taskName">
           <el-input v-model="taskForm.taskName" placeholder="请输入任务名称" />
         </el-form-item>
         <el-form-item label="任务类型" prop="taskType">
-          <el-select v-model="taskForm.taskType" placeholder="请选择任务类型" style="width: 100%">
+          <el-select v-model="taskForm.taskType" placeholder="请选择任务类型" style="width: 100%" @change="handleTaskTypeChange">
             <el-option label="点目标" value="点目标" />
             <el-option label="区域目标" value="区域目标" />
+            <el-option label="广域目标" value="广域目标" />
             <el-option label="移动目标" value="移动目标" />
+            <el-option label="静态观测" value="静态观测" />
+            <el-option label="周期观测" value="周期观测" />
           </el-select>
         </el-form-item>
         <el-form-item label="优先级" prop="priority">
@@ -232,21 +253,58 @@
         </el-form-item>
         <el-form-item label="载荷类型" prop="sensorType">
           <el-select v-model="taskForm.sensorType" placeholder="请选择载荷类型" style="width: 100%">
-            <el-option label="SAR" value="SAR" />
-            <el-option label="光学" value="optical" />
-            <el-option label="红外" value="infrared" />
+            <el-option v-for="opt in filteredSensorOptions" :key="opt.value" :label="opt.label" :value="opt.value" />
           </el-select>
         </el-form-item>
         <el-form-item label="分辨率要求">
-          <el-input-number v-model="taskForm.resolution" :min="0.1" :max="100" :step="0.1" style="width: 100%" />
+          <el-select v-if="resolutionOptions.length" v-model="taskForm.resolution" placeholder="请选择分辨率" style="width: 100%">
+            <el-option v-for="r in resolutionOptions" :key="r" :label="r + ' m'" :value="Number(r)" />
+          </el-select>
+          <el-input-number v-else v-model="taskForm.resolution" :min="0.1" :max="100" :step="0.1" style="width: 100%" />
         </el-form-item>
-        <el-form-item label="目标位置" prop="targetLocation">
+        <el-form-item label="时间范围">
+          <el-date-picker
+            v-model="taskForm.dateRange"
+            type="datetimerange"
+            start-placeholder="开始时间"
+            end-placeholder="结束时间"
+            value-format="YYYY-MM-DD HH:mm:ss"
+            format="YYYY-MM-DD HH:mm:ss"
+            style="width: 100%"
+          />
+        </el-form-item>
+        <el-form-item v-if="!isAreaTaskType" label="目标位置">
           <el-input v-model="taskForm.targetLocation" placeholder="格式: [纬度, 经度]" />
         </el-form-item>
+        <el-form-item v-else label="区域坐标点">
+          <div class="area-points">
+            <div v-for="(point, index) in taskForm.areaPoints" :key="index" class="area-point-row">
+              <el-input v-model="taskForm.areaPoints[index]" placeholder="格式: 纬度, 经度" />
+              <el-button link type="danger" :icon="Delete" :disabled="taskForm.areaPoints.length <= 1" @click="removeAreaPoint(index)" />
+            </div>
+            <el-button link type="primary" :icon="Plus" @click="addAreaPoint">新增坐标点</el-button>
+          </div>
+        </el-form-item>
         <el-form-item label="指定星簇">
-          <el-select v-model="taskForm.clusterName" placeholder="请选择星簇（可选）" clearable style="width: 100%">
+          <el-select v-model="taskForm.clusterName" placeholder="请选择星簇（可选）" clearable style="width: 100%" @change="handleClusterChange">
             <el-option v-for="cluster in clusterList" :key="cluster.id" :label="cluster.name" :value="cluster.name" />
           </el-select>
+        </el-form-item>
+        <el-form-item label="预约时间">
+          <el-date-picker
+            v-model="taskForm.appointTime"
+            type="datetime"
+            placeholder="可选"
+            value-format="YYYY-MM-DD HH:mm:ss"
+            format="YYYY-MM-DD HH:mm:ss"
+            style="width: 100%"
+          />
+        </el-form-item>
+        <el-form-item label="周期(分钟)">
+          <el-input-number v-model="taskForm.cycle" :min="1" :max="1440" style="width: 100%" />
+        </el-form-item>
+        <el-form-item label="云层厚度">
+          <el-input-number v-model="taskForm.cloudThickness" :min="0" :max="5000" :step="0.1" style="width: 100%" />
         </el-form-item>
       </el-form>
       <template #footer>
@@ -287,13 +345,13 @@
 <script>
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { 
-  Search, Refresh, Plus, View, Delete, VideoPlay, VideoPause, Download, CircleClose, Close
+  Search, Refresh, Plus, View, Delete, Edit, VideoPlay, VideoPause, Download, CircleClose, Close
 } from '@element-plus/icons-vue';
 
 export default {
   name: 'TaskManage',
   components: {
-    Search, Refresh, Plus, View, Delete, VideoPlay, VideoPause, Download, CircleClose, Close
+    Search, Refresh, Plus, View, Delete, Edit, VideoPlay, VideoPause, Download, CircleClose, Close
   },
   data() {
     return {
@@ -318,8 +376,10 @@ export default {
       },
       // 批量选择
       selectedTasks: [],
-      // 新增任务
+      // 新增/编辑任务
       addDialogVisible: false,
+      editingTaskId: null,
+      clusterDetails: null,
       submitting: false,
       taskFormRef: null,
       taskForm: {
@@ -330,14 +390,18 @@ export default {
         sensorType: '',
         resolution: 1.0,
         targetLocation: '',
-        clusterName: ''
+        areaPoints: [''],
+        clusterName: '',
+        dateRange: [],
+        appointTime: '',
+        cycle: 60,
+        cloudThickness: 0
       },
       taskRules: {
         taskName: [{ required: true, message: '请输入任务名称', trigger: 'blur' }],
         taskType: [{ required: true, message: '请选择任务类型', trigger: 'change' }],
         priority: [{ required: true, message: '请设置优先级', trigger: 'change' }],
-        sensorType: [{ required: true, message: '请选择载荷类型', trigger: 'change' }],
-        targetLocation: [{ required: true, message: '请输入目标位置', trigger: 'blur' }]
+        sensorType: [{ required: true, message: '请选择载荷类型', trigger: 'change' }]
       },
       clusterList: [],
       // 详情
@@ -345,12 +409,106 @@ export default {
       currentTask: null
     };
   },
+  computed: {
+    // 多坐标点任务类型（区域目标/广域目标显示多坐标点录入，其余显示单坐标）
+    isAreaTaskType() {
+      return ['区域目标', '广域目标'].includes(this.taskForm.taskType);
+    },
+    // 载荷类型选项：选择星簇后过滤为该星簇支持的载荷
+    filteredSensorOptions() {
+      const all = [
+        { label: 'SAR', value: 'SAR' },
+        { label: '光学', value: 'optical' },
+        { label: '红外', value: 'infrared' }
+      ];
+      const supported = this.clusterDetails?.sensor_type;
+      if (this.taskForm.clusterName && Array.isArray(supported) && supported.length) {
+        return all.filter(opt => supported.includes(opt.value));
+      }
+      return all;
+    },
+    // 分辨率选项：星簇返回了该载荷对应的分辨率列表时下拉选择，否则手动输入
+    resolutionOptions() {
+      const map = this.clusterDetails?.payload_resolution;
+      if (this.taskForm.clusterName && map && this.taskForm.sensorType && Array.isArray(map[this.taskForm.sensorType])) {
+        return map[this.taskForm.sensorType];
+      }
+      return [];
+    }
+  },
   created() {
     this.getList();
     this.getStats();
     this.loadClusters();
+    // 任务列表 5 秒轮询，状态变更即时反馈（文档 3.7.10：表格与后端任务库实时联动）；弹窗打开时暂停轮询避免干扰编辑
+    this._pollTimer = setInterval(() => {
+      if (!this.addDialogVisible && !this.detailVisible) this.getList();
+    }, 5000);
+  },
+  beforeUnmount() {
+    if (this._pollTimer) { clearInterval(this._pollTimer); this._pollTimer = null; }
   },
   methods: {
+    normalizeTask(task = {}, source = 'new') {
+      return {
+        id: task.id,
+        task_name: task.task_name || task.taskName || '',
+        type: task.type || task.taskType || '',
+        priority: task.priority ?? '',
+        is_urgent: task.is_urgent ?? task.isEmergency ?? false,
+        isEmergency: task.is_urgent ?? task.isEmergency ?? false,
+        payload: task.payload || task.sensorType || '',
+        sensorType: task.payload || task.sensorType || '',
+        resolution: task.resolution ?? '',
+        assignedSatelliteName: task.satellite_name || task.assignedSatelliteName || '',
+        satellite_name: task.satellite_name || task.assignedSatelliteName || '',
+        clusterName: task.cluster_name || task.clusterName || '',
+        cluster_name: task.cluster_name || task.clusterName || '',
+        friendTask: task.friend_task ?? task.friendTask ?? '',  // 合并任务ID（合并的友任务id）
+        status: task.status || '',
+        startTime: task.start_time || task.startTime || '',
+        endTime: task.end_time || task.endTime || '',
+        appointTime: task.appoint_time || task.appointTime || '',
+        targetLocation: task.coordinates || task.targetLocation || '',
+        cloudThickness: task.cloud_thickness ?? task.cloudThickness ?? '',
+        comment: task.comment || '',
+        source,
+      };
+    },
+    // TODO: 后端 /tasks/getNewTasks、/tasks/getOldTasks 暂不支持关键字查询参数，
+    // 目前关键字为页内过滤，仅作用于当前页数据，与服务端分页存在矛盾；后端支持后应改为传参查询
+    applyKeywordFilter(items) {
+      if (!this.search.keyword) return items;
+      const keyword = this.search.keyword.trim().toLowerCase();
+      return items.filter((item) =>
+        [
+          item.task_name,
+          item.type,
+          item.sensorType,
+          item.assignedSatelliteName,
+          item.clusterName,
+          item.status,
+          item.targetLocation,
+        ].some((field) => String(field || '').toLowerCase().includes(keyword))
+      );
+    },
+    resetTaskForm() {
+      this.taskForm = {
+        taskName: '',
+        taskType: '点目标',
+        priority: 5,
+        isEmergency: false,
+        sensorType: '',
+        resolution: 1.0,
+        targetLocation: '',
+        areaPoints: [''],
+        clusterName: '',
+        dateRange: [],
+        appointTime: '',
+        cycle: 60,
+        cloudThickness: 0
+      };
+    },
     // 获取新任务列表
     async getList() {
       this.loading = true;
@@ -359,28 +517,27 @@ export default {
           page: this.search.pageNum,
           page_size: this.search.pageSize
         };
-        // 只传递有值的搜索参数（后端期望数组格式）
-        if (this.search.keyword) params.task_name = this.search.keyword;
         if (this.search.taskType) params.type = [this.search.taskType];
         if (this.search.sensorType) params.payload = [this.search.sensorType];
         if (this.search.status) params.status = [this.search.status];
-        console.log('搜索参数:', params);
         const res = await this.$request.post('/tasks/getNewTasks', params);
-        // 处理后端返回的数据结构 { status: 'success', data: { items: [...], total: ... } }
         const responseData = res.data.data || res.data;
         if (responseData) {
-          const items = responseData.items || responseData || [];
-          // 添加 isRunning 属性用于开关绑定
-          this.tableData = items.map(item => ({
+          const items = (responseData.items || responseData || []).map((item) => this.normalizeTask(item, 'new'));
+          const filteredItems = this.applyKeywordFilter(items);
+          this.tableData = filteredItems.map(item => ({
             ...item,
             isRunning: item.status === '执行中' || item.status === '运行中'
           }));
-          this.totalNum = responseData.total || responseData.length || 0;
+          this.totalNum = this.search.keyword ? filteredItems.length : (responseData.total || filteredItems.length || 0);
         }
       } catch (err) {
         console.error('获取任务列表失败:', err);
-        if (err.response?.status !== 503) {
-          ElMessage.error('获取任务列表失败: ' + (err.message || '未知错误'));
+        const errorMessage = err.response?.data?.error || err.response?.data?.message || err.message || '未知错误';
+        if (String(errorMessage).includes('未初始化')) {
+          ElMessage.warning('系统尚未初始化完成，请先上传 TLE 和卫星参数');
+        } else {
+          ElMessage.error('获取任务列表失败: ' + errorMessage);
         }
         this.tableData = [];
         this.totalNum = 0;
@@ -397,20 +554,21 @@ export default {
           page: this.search.pageNum,
           page_size: this.search.pageSize
         };
-        // 只传递有值的搜索参数（后端期望数组格式）
-        if (this.search.keyword) params.task_name = this.search.keyword;
         if (this.search.taskType) params.type = [this.search.taskType];
         if (this.search.sensorType) params.payload = [this.search.sensorType];
         if (this.search.status) params.status = [this.search.status];
         const res = await this.$request.post('/tasks/getOldTasks', params);
-        // 处理后端返回的数据结构
         const responseData = res.data.data || res.data;
         if (responseData) {
-          this.oldTaskData = responseData.items || responseData || [];
-          this.totalNum = responseData.total || responseData.length || 0;
+          const items = (responseData.items || responseData || []).map((item) => this.normalizeTask(item, 'old'));
+          const filteredItems = this.applyKeywordFilter(items);
+          this.oldTaskData = filteredItems;
+          this.totalNum = this.search.keyword ? filteredItems.length : (responseData.total || filteredItems.length || 0);
         }
       } catch (err) {
         console.error('获取历史任务失败:', err);
+        const errorMessage = err.response?.data?.error || err.response?.data?.message || err.message || '未知错误';
+        ElMessage.error('获取历史任务失败: ' + errorMessage);
         this.oldTaskData = [];
         this.totalNum = 0;
       } finally {
@@ -422,13 +580,12 @@ export default {
     async getStats() {
       try {
         const res = await this.$request.get('/tasks/getNewTasksByCondition');
-        // 处理后端返回的数据结构
-        const tasks = res.data.data || res.data || [];
+        const tasks = (res.data.data || res.data || []).map((task) => this.normalizeTask(task, 'new'));
         if (Array.isArray(tasks)) {
           this.stats.total = tasks.length;
           this.stats.waiting = tasks.filter(t => t.status === '等待执行' || t.status === '等待规划').length;
-          this.stats.running = tasks.filter(t => t.status === '执行中' || t.status === '运行中').length;
-          this.stats.completed = tasks.filter(t => t.status === '已完成' || t.status === '失败' || t.status === 'Success').length;
+          this.stats.running = tasks.filter(t => t.status === '执行中' || t.status === '运行中' || t.status === '正在执行').length;
+          this.stats.completed = tasks.filter(t => t.status === '已完成' || t.status === '失败' || t.status === 'Success' || t.status === 'Failed').length;
         }
       } catch (err) {
         console.error('获取统计数据失败:', err);
@@ -459,8 +616,11 @@ export default {
     // 搜索（重置页码）
     handleSearch(e) {
       if (e) e.preventDefault();
-      console.log('搜索关键词:', this.search.keyword, '事件触发');
       this.search.pageNum = 1;
+      // 后端不支持关键字参数，关键字仅过滤当前页，明确提示用户
+      if (this.search.keyword && this.search.keyword.trim()) {
+        ElMessage.info('关键字搜索仅过滤当前页数据');
+      }
       this.doSearch();
     },
 
@@ -488,7 +648,7 @@ export default {
 
     // 刷新
     refreshList() {
-      this.getList();
+      this.doSearch();
       this.getStats();
     },
 
@@ -527,7 +687,7 @@ export default {
         let successCount = 0;
         for (const task of waitingTasks) {
           try {
-            await this.$request.get(`/tasks/startTask/${task.id}`);
+            await this.$request.post(`/tasks/startTask/${task.id}`);
             successCount++;
           } catch (err) {
             console.error(`启动任务 ${task.id} 失败:`, err);
@@ -535,8 +695,7 @@ export default {
         }
         ElMessage.success(`成功启动 ${successCount} 个任务`);
         this.clearSelection();
-        this.getList();
-        this.getStats();
+        this.refreshList();
       } catch (err) {
         if (err !== 'cancel') {
           ElMessage.error('批量启动失败');
@@ -547,7 +706,7 @@ export default {
     // 批量暂停
     async batchPause() {
       if (this.selectedTasks.length === 0) return;
-      const runningTasks = this.selectedTasks.filter(t => t.status === '执行中' || t.status === '运行中');
+      const runningTasks = this.selectedTasks.filter(t => t.status === '执行中' || t.status === '运行中' || t.status === '正在执行');
       if (runningTasks.length === 0) {
         ElMessage.warning('没有可暂停的任务（请选择执行中或运行中的任务）');
         return;
@@ -557,7 +716,7 @@ export default {
         let successCount = 0;
         for (const task of runningTasks) {
           try {
-            await this.$request.get(`/tasks/pauseTask/${task.id}`);
+            await this.$request.post(`/tasks/pauseTask/${task.id}`);
             successCount++;
           } catch (err) {
             console.error(`暂停任务 ${task.id} 失败:`, err);
@@ -565,8 +724,7 @@ export default {
         }
         ElMessage.success(`成功暂停 ${successCount} 个任务`);
         this.clearSelection();
-        this.getList();
-        this.getStats();
+        this.refreshList();
       } catch (err) {
         if (err !== 'cancel') {
           ElMessage.error('批量暂停失败');
@@ -587,7 +745,7 @@ export default {
         let successCount = 0;
         for (const task of activeTasks) {
           try {
-            await this.$request.get(`/tasks/manualEndTask/${task.id}`);
+            await this.$request.post(`/tasks/manualEndTask/${task.id}`);
             successCount++;
           } catch (err) {
             console.error(`结束任务 ${task.id} 失败:`, err);
@@ -595,8 +753,7 @@ export default {
         }
         ElMessage.success(`成功结束 ${successCount} 个任务`);
         this.clearSelection();
-        this.getList();
-        this.getStats();
+        this.refreshList();
       } catch (err) {
         if (err !== 'cancel') {
           ElMessage.error('批量结束失败');
@@ -608,51 +765,182 @@ export default {
     async endTask(row) {
       try {
         await ElMessageBox.confirm(`确定要结束任务 "${row.task_name || row.id}" 吗？`, '提示', { type: 'warning' });
-        const res = await this.$request.get(`/tasks/manualEndTask/${row.id}`);
-        if (res.data && res.data.result === 'ok') {
+        const res = await this.$request.post(`/tasks/manualEndTask/${row.id}`);
+        if (res.data === 'ok' || res.data?.result === 'ok') {
           ElMessage.success('任务已结束');
-          this.getList();
-          this.getStats();
+          this.refreshList();
         } else {
-          ElMessage.error('结束任务失败: ' + (res.data?.message || '未知错误'));
+          ElMessage.error('结束任务失败: ' + (res.data?.error || res.data?.message || '未知错误'));
         }
       } catch (err) {
         if (err !== 'cancel') {
           console.error('结束任务失败:', err);
-          ElMessage.error('结束任务失败: ' + (err.response?.data?.message || err.message || '服务器内部错误'));
+          ElMessage.error('结束任务失败: ' + (err.response?.data?.error || err.response?.data?.message || err.message || '服务器内部错误'));
         }
       }
     },
 
     // 显示新增弹窗
     showAddDialog() {
-      this.taskForm = {
-        taskName: '',
-        taskType: '点目标',
-        priority: 5,
-        isEmergency: false,
-        sensorType: '',
-        resolution: 1.0,
-        targetLocation: '',
-        clusterName: ''
-      };
+      this.editingTaskId = null;
+      this.clusterDetails = null;
+      this.resetTaskForm();
       this.addDialogVisible = true;
     },
 
-    // 提交任务
+    // 显示编辑弹窗（回填该行任务数据）
+    async showEditDialog(row) {
+      this.editingTaskId = row.id;
+      this.clusterDetails = null;
+      const points = this.parseCoordinates(row.targetLocation);
+      const startLocal = this.utcStrToLocal(row.startTime);
+      const endLocal = this.utcStrToLocal(row.endTime);
+      this.taskForm = {
+        taskName: row.task_name || '',
+        taskType: row.type || '点目标',
+        priority: Number(row.priority) || 5,
+        isEmergency: !!row.is_urgent,
+        sensorType: '',
+        resolution: Number(row.resolution) || 1.0,
+        targetLocation: row.type === '区域目标' ? '' : (points[0] || ''),
+        areaPoints: row.type === '区域目标' ? (points.length ? points : ['']) : [''],
+        clusterName: row.cluster_name || '',
+        dateRange: startLocal && endLocal ? [startLocal, endLocal] : [],
+        appointTime: this.utcStrToLocal(row.appointTime),
+        cycle: 60,
+        cloudThickness: Number(row.cloudThickness) || 0
+      };
+      this.addDialogVisible = true;
+      // 先加载星簇载荷信息，再回填载荷类型，避免被联动清空
+      if (this.taskForm.clusterName) {
+        await this.handleClusterChange(this.taskForm.clusterName);
+      }
+      this.taskForm.sensorType = row.sensorType || row.payload || '';
+    },
+
+    // 弹窗关闭后重置编辑状态
+    handleDialogClosed() {
+      this.editingTaskId = null;
+      this.clusterDetails = null;
+    },
+
+    // 任务类型切换：单坐标与多坐标点互相迁移（区域目标/广域目标为多坐标点类型）
+    handleTaskTypeChange(type) {
+      const isArea = ['区域目标', '广域目标'].includes(type);
+      if (isArea && this.taskForm.targetLocation.trim()) {
+        this.taskForm.areaPoints = [this.taskForm.targetLocation.trim()];
+        this.taskForm.targetLocation = '';
+      } else if (!isArea) {
+        const first = this.taskForm.areaPoints.find(p => p && p.trim());
+        if (first) {
+          this.taskForm.targetLocation = first.trim();
+        }
+        this.taskForm.areaPoints = [''];
+      }
+    },
+
+    // 新增/删除区域坐标点
+    addAreaPoint() {
+      this.taskForm.areaPoints.push('');
+    },
+    removeAreaPoint(index) {
+      if (this.taskForm.areaPoints.length <= 1) return;
+      this.taskForm.areaPoints.splice(index, 1);
+    },
+
+    // 选择星簇后加载星簇详情，联动过滤载荷类型与分辨率
+    async handleClusterChange(name) {
+      if (!name) {
+        this.clusterDetails = null;
+        return;
+      }
+      try {
+        const res = await this.$request.get(`/clusters/getClusterDetailsByName/${encodeURIComponent(name)}`);
+        const data = res.data?.data || res.data;
+        if (data && Array.isArray(data.sensor_type)) {
+          this.clusterDetails = data;
+          if (this.taskForm.sensorType && !data.sensor_type.includes(this.taskForm.sensorType)) {
+            this.taskForm.sensorType = '';
+            ElMessage.info('该星簇不支持原载荷类型，请重新选择');
+          }
+        } else {
+          this.clusterDetails = null;
+        }
+      } catch (err) {
+        this.clusterDetails = null;
+        const errorMessage = err.response?.data?.message || err.message || '未知错误';
+        ElMessage.warning('获取星簇载荷信息失败: ' + errorMessage);
+      }
+    },
+
+    // 解析后端返回的坐标字符串为坐标点数组，兼容 "(30.0, 120.0)" 和 "[(30.0, 120.0), (31.0, 121.0)]"
+    parseCoordinates(str) {
+      if (!str) return [];
+      const matches = String(str).match(/-?\d+(?:\.\d+)?\s*,\s*-?\d+(?:\.\d+)?/g) || [];
+      return matches.map(m => m.split(',').map(s => s.trim()).join(', '));
+    },
+
+    // 后端存储时间为 UTC，编辑回填时转为本地时间字符串
+    utcStrToLocal(str) {
+      if (!str || str === 'None') return '';
+      const d = new Date(String(str).trim().replace(' ', 'T') + 'Z');
+      if (isNaN(d.getTime())) return '';
+      const pad = n => String(n).padStart(2, '0');
+      return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+    },
+
+    // 提交任务（新增或编辑）
     async submitTask() {
       const valid = await this.$refs.taskFormRef.validate().catch(() => false);
       if (!valid) return;
 
+      let coordinates;
+      if (this.taskForm.taskType === '区域目标') {
+        coordinates = this.taskForm.areaPoints.map(p => (p || '').trim()).filter(Boolean);
+        if (!coordinates.length) {
+          ElMessage.warning('请至少添加一个区域坐标点');
+          return;
+        }
+      } else {
+        if (!this.taskForm.targetLocation || !this.taskForm.targetLocation.trim()) {
+          ElMessage.warning('请输入目标位置');
+          return;
+        }
+        coordinates = [this.taskForm.targetLocation.trim()];
+      }
+
       this.submitting = true;
       try {
-        await this.$request.post('/tasks/addSingleTask', this.taskForm);
-        ElMessage.success('任务添加成功');
+        const payload = {
+          task_name: this.taskForm.taskName,
+          priority: this.taskForm.priority,
+          is_urgent: this.taskForm.isEmergency ? '是' : '否',
+          type: this.taskForm.taskType,
+          payload: this.taskForm.sensorType,
+          resolution: this.taskForm.resolution,
+          timeRanges: [
+            this.taskForm.dateRange?.length === 2
+              ? `${this.taskForm.dateRange[0]},${this.taskForm.dateRange[1]}`
+              : ''
+          ],
+          cycle: String(this.taskForm.cycle || 60),
+          cloud_thickness: String(this.taskForm.cloudThickness ?? 0),
+          cluster_name: this.taskForm.clusterName || '',
+          appoint_time: this.taskForm.appointTime || '',
+          coordinates
+        };
+        if (this.editingTaskId) {
+          const res = await this.$request.post(`/tasks/updateTask/${this.editingTaskId}`, payload);
+          ElMessage.success(res.data?.meta?.message || '任务更新成功');
+        } else {
+          await this.$request.post('/tasks/addSingleTask', payload);
+          ElMessage.success('任务添加成功');
+        }
         this.addDialogVisible = false;
-        this.getList();
-        this.getStats();
+        this.refreshList();
       } catch (err) {
-        ElMessage.error('添加失败: ' + (err.message || '未知错误'));
+        const errorMessage = err.response?.data?.meta?.message || err.response?.data?.error || err.response?.data?.message || err.message || '未知错误';
+        ElMessage.error((this.editingTaskId ? '编辑失败: ' : '添加失败: ') + errorMessage);
       } finally {
         this.submitting = false;
       }
@@ -664,16 +952,16 @@ export default {
       try {
         if (val) {
           // 切换到运行状态
-          await this.$request.get(`/tasks/startTask/${row.id}`);
+          await this.$request.post(`/tasks/startTask/${row.id}`);
           row.status = '执行中';
           ElMessage.success('任务已启动');
         } else {
           // 切换到暂停状态
-          await this.$request.get(`/tasks/pauseTask/${row.id}`);
+          await this.$request.post(`/tasks/pauseTask/${row.id}`);
           row.status = '暂停';
           ElMessage.success('任务已暂停');
         }
-        this.getStats();
+        this.refreshList();
       } catch (err) {
         // 恢复状态
         row.isRunning = !val;
@@ -685,14 +973,14 @@ export default {
     // 开始任务（按钮方式）
     async startTask(row) {
       try {
-        const res = await this.$request.get(`/tasks/startTask/${row.id}`);
+        const res = await this.$request.post(`/tasks/startTask/${row.id}`);
         // 处理不同的响应格式
         const responseData = res.data;
         if (responseData && (responseData.result === 'ok' || responseData.result === 'success')) {
           row.status = '执行中';
           row.isRunning = true;
           ElMessage.success('任务已启动');
-          this.getStats();
+          this.refreshList();
         } else if (responseData && responseData.error) {
           ElMessage.error('启动失败: ' + responseData.error);
         } else {
@@ -708,14 +996,14 @@ export default {
     // 暂停任务（按钮方式）
     async pauseTask(row) {
       try {
-        const res = await this.$request.get(`/tasks/pauseTask/${row.id}`);
+        const res = await this.$request.post(`/tasks/pauseTask/${row.id}`);
         // 处理不同的响应格式
         const responseData = res.data;
         if (responseData && (responseData.result === 'ok' || responseData.result === 'success')) {
           row.status = '暂停';
           row.isRunning = false;
           ElMessage.success('任务已暂停');
-          this.getStats();
+          this.refreshList();
         } else if (responseData && responseData.error) {
           ElMessage.error('暂停失败: ' + responseData.error);
         } else {
@@ -731,12 +1019,12 @@ export default {
     // 删除任务
     async deleteTask(id) {
       try {
-        await this.$request.delete(`/tasks/deleteTaskById/${id}`);
+        await this.$request.delete(`/tasks/deleteTask/${id}`);
         ElMessage.success('任务删除成功');
-        this.getList();
-        this.getStats();
+        this.refreshList();
       } catch (err) {
-        ElMessage.error('删除失败');
+        const errorMessage = err.response?.data?.error || err.response?.data?.message || err.message || '未知错误';
+        ElMessage.error('删除失败: ' + errorMessage);
       }
     },
 
@@ -755,14 +1043,26 @@ export default {
     // 导出任务
     async exportTask(row) {
       try {
-        const url = this.activeTab === 'new' 
-          ? `/tasks/exportTask/${row.id}`
-          : `/tasks/exportOldTask/${row.id}`;
+        const isOldTask = row.source === 'old' || this.activeTab === 'old';
+        const url = isOldTask ? `/tasks/exportOldTask/${row.id}` : `/tasks/exportTask/${row.id}`;
         const res = await this.$request.get(url, { responseType: 'blob' });
         this.downloadBlob(res.data, `${row.task_name || 'task'}_${row.id}.xlsx`);
         ElMessage.success('导出成功');
       } catch (err) {
-        ElMessage.error('导出失败');
+        const errorMessage = err.response?.data?.error || err.response?.data?.message || err.message || '未知错误';
+        ElMessage.error('导出失败: ' + errorMessage);
+      }
+    },
+    async exportAllTasks() {
+      try {
+        const url = this.activeTab === 'new' ? '/tasks/exportAllNewTasks' : '/tasks/exportAllOldTasks';
+        const fileName = this.activeTab === 'new' ? '未完成任务列表.xlsx' : '已完成任务列表.xlsx';
+        const res = await this.$request.get(url, { responseType: 'blob' });
+        this.downloadBlob(res.data, fileName);
+        ElMessage.success('导出成功');
+      } catch (err) {
+        const errorMessage = err.response?.data?.error || err.response?.data?.message || err.message || '未知错误';
+        ElMessage.error('导出失败: ' + errorMessage);
       }
     },
 
@@ -805,7 +1105,8 @@ export default {
         '暂停': 'warning',
         '已完成': 'success',
         '失败': 'danger',
-        'Success': 'success'
+        'Success': 'success',
+        'Failed': 'danger'
       };
       return map[status] || 'info';
     }
@@ -909,6 +1210,24 @@ export default {
 /* 表格 */
 .table-card {
   margin-bottom: 16px;
+}
+
+/* 区域目标多坐标点 */
+.area-points {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.area-point-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.area-point-row .el-input {
+  flex: 1;
 }
 
 .pagination-wrapper {

@@ -301,8 +301,8 @@ class GreedyScheduler:
                     downlink_end = downlink_window.get('end', downlink_window.get('end_time'))
                     if not downlink_start or not downlink_end:
                         continue
-                except:
-                    # print(f"  无法解析下行窗口 #{window_idx}: {downlink_window}")
+                except Exception as e:
+                    print(f"  无法解析下行窗口 #{window_idx}: {downlink_window}: {e}")
                     continue
 
             # 检查下行窗口是否与当前时间段重叠

@@ -21,6 +21,7 @@
         </div>
         <div class="search-right">
           <el-button type="success" :icon="Plus" @click="showAddDialog">新增星簇</el-button>
+          <el-button type="warning" :icon="UploadFilled" @click="showImportDialog">批量导入</el-button>
           <el-button type="primary" :icon="Download" @click="exportAll">导出全部</el-button>
           <el-button :icon="Refresh" circle title="刷新" @click="refreshList" :loading="loading" />
         </div>
@@ -38,6 +39,28 @@
         <el-table-column prop="name" label="星簇名称" width="150" />
         <el-table-column prop="orbit" label="包含轨道" min-width="200" show-overflow-tooltip />
         <el-table-column prop="satellite_count" label="卫星数量" width="100" />
+        <el-table-column label="包含卫星" min-width="220">
+          <template #default="scope">
+            <template v-if="scope.row.satellite_names && scope.row.satellite_names.length">
+              <el-tag 
+                v-for="name in scope.row.satellite_names.slice(0, 3)" 
+                :key="name" 
+                size="small" 
+                style="margin-right: 4px;"
+              >
+                {{ name }}
+              </el-tag>
+              <el-tooltip 
+                v-if="scope.row.satellite_names.length > 3" 
+                :content="scope.row.satellite_names.join('、')" 
+                placement="top"
+              >
+                <el-tag size="small" type="info">+{{ scope.row.satellite_names.length - 3 }}</el-tag>
+              </el-tooltip>
+            </template>
+            <span v-else style="color: #909399;">-</span>
+          </template>
+        </el-table-column>
         <el-table-column prop="payload_resolution" label="载荷及分辨率" min-width="200" show-overflow-tooltip />
         <el-table-column label="状态" width="90">
           <template #default="scope">
@@ -149,20 +172,74 @@
       width="500px"
     >
       <div class="replan-content">
-        <p>将星簇 <strong>{{ replanForm.oldCluster }}</strong> 的任务迁移至：</p>
-        <el-select v-model="replanForm.newCluster" placeholder="选择目标星簇" style="width: 100%; margin-top: 16px;">
-          <el-option 
-            v-for="cluster in availableClusters" 
-            :key="cluster.id" 
-            :label="cluster.name" 
-            :value="cluster.name"
-          />
-        </el-select>
+        <el-form label-width="80px">
+          <el-form-item label="原星簇">
+            <el-select v-model="replanForm.oldCluster" placeholder="选择原星簇" style="width: 100%;">
+              <el-option 
+                v-for="cluster in allClusters" 
+                :key="cluster.id" 
+                :label="cluster.name" 
+                :value="cluster.name"
+              />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="新星簇">
+            <el-select v-model="replanForm.newCluster" placeholder="选择目标星簇" style="width: 100%;">
+              <el-option 
+                v-for="cluster in availableClusters" 
+                :key="cluster.id" 
+                :label="cluster.name" 
+                :value="cluster.name"
+              />
+            </el-select>
+            <div class="form-hint">仅显示可用且与原星簇轨道/载荷适配的星簇</div>
+          </el-form-item>
+        </el-form>
       </div>
       <template #footer>
         <div class="dialog-footer">
           <el-button @click="replanVisible = false">取消</el-button>
           <el-button type="primary" @click="doReplan" :loading="replanning">确认迁移</el-button>
+        </div>
+      </template>
+    </el-dialog>
+
+    <!-- Excel 批量导入弹窗 -->
+    <el-dialog 
+      v-model="importVisible" 
+      title="Excel 批量导入星簇" 
+      width="500px"
+      destroy-on-close
+    >
+      <div class="upload-zone-wrapper">
+        <el-upload
+          ref="importUploadRef"
+          class="import-uploader"
+          drag
+          action="#"
+          :auto-upload="false"
+          :show-file-list="true"
+          :limit="1"
+          :on-change="handleImportFileChange"
+          :on-remove="onImportRemove"
+          accept=".xlsx"
+        >
+          <el-icon class="upload-zone-icon" :size="40"><UploadFilled /></el-icon>
+          <div class="upload-zone-text">
+            <span class="primary">拖拽文件到此处</span>
+            <span class="secondary">或 <em>点击选择文件</em></span>
+          </div>
+        </el-upload>
+        <div class="format-tags">
+          <el-tag size="small" effect="plain" type="info">XLSX</el-tag>
+        </div>
+        <div class="form-hint" style="margin-top: 8px;">上传星簇属性 Excel 模板，将批量初始化所有星簇（覆盖现有星簇）</div>
+      </div>
+      <template #footer>
+        <div class="dialog-footer">
+          <el-button :icon="Delete" @click="clearImportFile" :disabled="!importFileReady">清空</el-button>
+          <el-button @click="importVisible = false">取消</el-button>
+          <el-button type="primary" @click="submitImportFile" :loading="importing" :disabled="!importFileReady">上传文件</el-button>
         </div>
       </template>
     </el-dialog>
@@ -201,13 +278,13 @@
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { 
   Search, Refresh, Plus, Download, View, Edit, Delete, 
-  RefreshRight
+  RefreshRight, UploadFilled
 } from '@element-plus/icons-vue';
 
 export default {
   name: 'ClusterManage',
   components: {
-    Search, Refresh, Plus, Download, View, Edit, Delete, RefreshRight
+    Search, Refresh, Plus, Download, View, Edit, Delete, RefreshRight, UploadFilled
   },
   data() {
     return {
@@ -257,16 +334,42 @@ export default {
         oldCluster: '',
         newCluster: ''
       },
-      availableClusters: [],
+      allClusters: [],
+      
+      // Excel 批量导入相关
+      importVisible: false,
+      importFile: null,
+      importFileReady: false,
+      importing: false,
       
       // 详情相关
       detailVisible: false,
       currentCluster: null
     };
   },
+  computed: {
+    // 新星簇下拉选项：排除原星簇与不可用星簇，且要求与原星簇轨道或载荷类型适配（避免非法任务迁移）
+    availableClusters() {
+      const oldName = this.replanForm.oldCluster;
+      const old = this.allClusters.find(c => c.name === oldName);
+      // 载荷类型集合（格式 "SAR:0.5,1|optical:0.5" → ['SAR','optical']）
+      const payloadTypes = (c) => String(c.payload_resolution || '').split('|').map(p => p.split(':')[0]).filter(Boolean);
+      // 轨道ID集合（格式 "1,2"）
+      const orbitIds = (c) => String(c.orbits || '').split(',').filter(Boolean);
+      return this.allClusters.filter(c => {
+        if (c.name === oldName) return false;   // 排除原星簇
+        if (c.status === false) return false;   // 排除不可用星簇
+        if (!old) return true;
+        // 与原星簇有共同轨道或共同载荷类型才允许作为迁移目标
+        return orbitIds(c).some(o => orbitIds(old).includes(o)) ||
+               payloadTypes(c).some(p => payloadTypes(old).includes(p));
+      });
+    }
+  },
   created() {
     this.getList();
     this.loadOrbits();
+    this.loadAllClusters();
   },
   methods: {
     // 获取星簇列表
@@ -379,6 +482,11 @@ export default {
     // 编辑星簇
     editCluster(row) {
       this.isEdit = true;
+      // 重置载荷选项，避免上一次编辑/新增残留的勾选状态污染表单
+      for (const key in this.payloadOptions) {
+        this.payloadOptions[key].selected = false;
+        this.payloadOptions[key].resolutions = [];
+      }
       this.clusterForm = {
         id: row.id,
         name: row.name,
@@ -386,13 +494,15 @@ export default {
         payload_resolution: {}
       };
       
-      // 解析轨道
-      if (row.orbit) {
-        // 轨道格式是 "轨道1&&轨道2"，需要根据orbit_info反查轨道ID
-        const orbitNames = row.orbit.split('&&');
-        this.clusterForm.orbits = this.orbitList
-          .filter(o => orbitNames.includes(Object.values(o)[0]))
-          .map(o => parseInt(Object.keys(o)[0]));
+      // 解析轨道：优先使用后端返回的纯轨道ID列表，兼容旧的文本解析
+      if (Array.isArray(row.orbit_ids) && row.orbit_ids.length > 0) {
+        this.clusterForm.orbits = [...row.orbit_ids];
+      } else if (row.orbit) {
+        // 后端返回的轨道格式如 "1,2,3" 或 "[1, 2, 3]"，提取数字作为轨道ID
+        const orbitStr = String(row.orbit).replace(/[\[\]\{\}]/g, '').trim();
+        this.clusterForm.orbits = orbitStr.split(',')
+          .map(s => parseInt(s.trim()))
+          .filter(n => !isNaN(n));
       }
       
       // 解析载荷和分辨率
@@ -413,6 +523,11 @@ export default {
         }
       }
       
+      // 编辑回填后主动加载所选轨道对应的分辨率选项（原仅在手动改选轨道时触发）
+      if (this.clusterForm.orbits.length > 0) {
+        this.onOrbitChange(this.clusterForm.orbits);
+      }
+
       this.dialogVisible = true;
     },
     
@@ -478,12 +593,23 @@ export default {
       }
     },
     
+    // 加载全量星簇列表（用于重规划下拉框）
+    async loadAllClusters() {
+      try {
+        const res = await this.$request.get('/clusters/getAllClustersNames');
+        this.allClusters = Array.isArray(res.data) ? res.data : [];
+      } catch (err) {
+        console.error('加载星簇列表失败:', err);
+        this.allClusters = [];
+      }
+    },
+    
     // 显示重规划弹窗
     showReplanDialog(row) {
       this.replanForm.oldCluster = row.name;
       this.replanForm.newCluster = '';
-      // 加载其他可用的星簇
-      this.availableClusters = this.tableData.filter(c => c.id !== row.id && c.status);
+      // 实时从后端同步全量星簇列表
+      this.loadAllClusters();
       this.replanVisible = true;
     },
     
@@ -503,7 +629,7 @@ export default {
         ElMessage.success('任务重规划完成');
         this.replanVisible = false;
       } catch (err) {
-        ElMessage.error('重规划失败: ' + (err.message || '未知错误'));
+        ElMessage.error('重规划失败: ' + ((err.response && err.response.data && err.response.data.message) || err.message || '未知错误'));
       } finally {
         this.replanning = false;
       }
@@ -532,6 +658,86 @@ export default {
         ElMessage.success('导出成功');
       } catch (err) {
         ElMessage.error('导出失败');
+      }
+    },
+    
+    // 显示 Excel 批量导入弹窗
+    showImportDialog() {
+      this.importFile = null;
+      this.importFileReady = false;
+      this.importVisible = true;
+    },
+    
+    // 选择导入文件
+    handleImportFileChange(file, fileList) {
+      const fileName = file.name.toLowerCase();
+      if (!fileName.endsWith('.xlsx')) {
+        ElMessage.error('文件格式不支持，请上传 XLSX 格式的 Excel 模板');
+        this.$refs.importUploadRef.clearFiles();
+        this.importFile = null;
+        this.importFileReady = false;
+        return;
+      }
+      
+      const maxSize = 10 * 1024 * 1024;
+      if (file.size > maxSize) {
+        ElMessage.error('文件大小不能超过 10MB');
+        this.$refs.importUploadRef.clearFiles();
+        this.importFile = null;
+        this.importFileReady = false;
+        return;
+      }
+      
+      if (fileList.length > 1) {
+        fileList.splice(0, 1);
+      }
+      
+      this.importFile = file.raw;
+      this.importFileReady = true;
+      ElMessage.success(`已选择文件: ${file.name}`);
+    },
+    
+    // 移除导入文件
+    onImportRemove() {
+      this.importFile = null;
+      this.importFileReady = false;
+    },
+    
+    // 清空导入文件
+    clearImportFile() {
+      this.$refs.importUploadRef.clearFiles();
+      this.importFile = null;
+      this.importFileReady = false;
+    },
+    
+    // 上传星簇 Excel 文件
+    async submitImportFile() {
+      if (!this.importFile) {
+        ElMessage.warning('请先选择文件');
+        return;
+      }
+      
+      const formData = new FormData();
+      formData.append('file', this.importFile);
+      
+      this.importing = true;
+      try {
+        await this.$request.post('/clusters/submitClusterFile', formData, {
+          headers: {
+            'Content-Type': 'multipart/form-data'
+          }
+        });
+        ElMessage.success('星簇 Excel 批量导入成功');
+        this.importVisible = false;
+        this.importFile = null;
+        this.importFileReady = false;
+        this.getList();
+        this.loadAllClusters();
+      } catch (err) {
+        const errorMsg = err.response?.data?.error || err.response?.data?.message || err.message || '未知错误';
+        ElMessage.error('批量导入失败: ' + errorMsg);
+      } finally {
+        this.importing = false;
       }
     },
     
@@ -607,6 +813,69 @@ export default {
 /* 重规划 */
 .replan-content {
   padding: 10px 0;
+}
+
+/* Excel 批量导入 */
+.upload-zone-wrapper {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 24px 0;
+  background: #fafafa;
+  border-radius: 8px;
+  border: 1px dashed #d9d9d9;
+}
+
+.import-uploader {
+  width: 100%;
+}
+
+:deep(.import-uploader .el-upload) {
+  width: 100%;
+}
+
+:deep(.import-uploader .el-upload-dragger) {
+  width: 100%;
+  height: 140px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+}
+
+.upload-zone-icon {
+  color: #c0c4cc;
+  margin-bottom: 12px;
+}
+
+.upload-zone-text {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+
+.upload-zone-text .primary {
+  font-size: 14px;
+  color: #606266;
+}
+
+.upload-zone-text .secondary {
+  font-size: 12px;
+  color: #909399;
+}
+
+.upload-zone-text .secondary em {
+  color: #409EFF;
+  font-style: normal;
+}
+
+.format-tags {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
 }
 
 .replan-content p {

@@ -82,15 +82,6 @@ class Task:
     def __lt__(self, other):
         return self.priority > other.priority  # 定义比较规则,优先级大的排在前面
 
-    def get_task_fields(self):
-        """
-        获取任务的字段列表
-        :return: 包含所有任务字段的列表
-        """
-        fields = str(self.task_id) + "|" + self.sensor_type + "|" + str(self.target_location) + "|" + str(
-            self.execution_time) + "|" + str(self.assigned_satellite.sat_name) + "|" + str(self.available_time_window)
-        return fields
-
     # 检查任务位置在指定时间是否有光照
     def check_illumination(self, time_point=None):
         """

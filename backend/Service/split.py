@@ -91,7 +91,7 @@ def split_area_target_into_point_targets(task, satellites=None):
             # 检查点是否在多边形内
             if is_point_in_polygon((lat, lon), boundary_points):
                 count += 1
-                subtask_id = task.task_id * 100 + count
+                subtask_id = task.task_id * 10000 + count
                 point_target = Task(
                     task_id=subtask_id,
                     task_name=task.task_name,
@@ -139,9 +139,11 @@ def is_point_in_polygon(point, polygon):
         if y > min(p1y, p2y):
             if y <= max(p1y, p2y):
                 if x <= max(p1x, p2x):
+                    # xinters 仅在边非水平（p1y != p2y）时有效，避免引用未定义/陈旧值
+                    xinters = None
                     if p1y != p2y:
                         xinters = (y - p1y) * (p2x - p1x) / (p2y - p1y) + p1x
-                    if p1x == p2x or x <= xinters:
+                    if p1x == p2x or (xinters is not None and x <= xinters):
                         inside = not inside
         p1x, p1y = p2x, p2y
 
@@ -160,11 +162,10 @@ def split_cycle_target_into_point_targets(task):
     """
     interval = task.latest_end_time - task.earliest_start_time
     count = interval.total_seconds() // task.cycle_time
-    print("时间分成的份数：", count)
     for i in range(int(count)):
         start_time = task.earliest_start_time + i * timedelta(seconds=task.cycle_time)
         end_time = task.earliest_start_time + (i + 1) * timedelta(seconds=task.cycle_time)
-        subtask_id = task.task_id * 100 + i + 1
+        subtask_id = task.task_id * 10000 + i + 1
         point_target = Task(
             task_id=subtask_id,
             task_name=task.task_name,
@@ -183,7 +184,6 @@ def split_cycle_target_into_point_targets(task):
             parent_location=task.target_location,
             parent_type=task.task_type
         )
-        print(f"周期目标{task.task_id}的子目标====={vars(point_target)}")
         task.subtasks.append(point_target)
         task.subtask_ids.append(subtask_id)
     return task.subtasks
