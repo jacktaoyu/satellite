@@ -24,22 +24,32 @@
         卫星网络态势监控
         <span class="sub-title">SATELLITE NETWORK SITUATION</span>
       </div>
-      <div class="sim-time">仿真时间&nbsp;{{ simTime }}</div>
+      <div class="header-right">
+        <div class="sim-time">仿真时间&nbsp;{{ simTime }}</div>
+        <button class="fullscreen-btn" :title="isFullscreen ? '退出全屏' : '全屏展示'" @click="toggleFullscreen">
+          <svg v-if="!isFullscreen" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg>
+          <svg v-else viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5"/></svg>
+        </button>
+      </div>
     </div>
 
     <!-- 左侧卫星列表 -->
     <div class="hud left-panel">
       <i class="pc pc-tr"></i><i class="pc pc-bl"></i>
-      <div class="panel-title">实时卫星列表（{{ satList.length }}）</div>
+      <div class="panel-title">实时卫星列表（{{ filteredSats.length }}/{{ satList.length }}）</div>
+      <div class="sat-search">
+        <input v-model.trim="satSearch" class="sat-search-input" type="text" placeholder="搜索卫星名称 / 载荷类型…" />
+        <span v-if="satSearch" class="sat-search-clear" @click="satSearch = ''">×</span>
+      </div>
       <div class="sat-list">
-        <div v-for="sat in satList" :key="sat.id" class="sat-item" @click="focusSat(sat)">
+        <div v-for="sat in filteredSats" :key="sat.id" class="sat-item" @click="focusSat(sat)">
           <input type="checkbox" class="sat-check" :checked="isSatChecked(sat.name)"
                  @click.stop @change="toggleSatVisible(sat.name, $event.target.checked)" />
           <span class="sat-name">{{ sat.name }}</span>
           <span class="sat-payload">{{ sat.loadType }}</span>
           <span class="sat-battery" :class="satDotClass(sat)">{{ sat.battery }}Wh</span>
         </div>
-        <div v-if="satList.length === 0" class="empty-tip">暂无卫星数据，请先完成系统初始化</div>
+        <div v-if="filteredSats.length === 0" class="empty-tip">{{ satList.length === 0 ? '暂无卫星数据，请先完成系统初始化' : '未找到匹配的卫星' }}</div>
       </div>
       <div class="panel-title">任务执行进度（{{ taskList.length }}）</div>
       <div class="task-list">
@@ -69,6 +79,9 @@
         </div>
         <div class="detail-row"><span>通信链路</span>
           <label class="hud-switch"><input type="checkbox" :checked="globalLinkShow" @change="toggleAllLinks($event.target.checked)"><i></i></label>
+        </div>
+        <div class="detail-row"><span>地球自转展示</span>
+          <label class="hud-switch"><input type="checkbox" :checked="autoRotate" @change="toggleAutoRotate($event.target.checked)"><i></i></label>
         </div>
       </div>
     </div>
@@ -175,6 +188,53 @@
   const prevTaskStatus = {};        // 任务状态快照，用于比对生成事件
   const lowBatteryWarned = new Set(); // 已报过低电量告警的卫星
   let lastSatisfaction = null;      // 上一次满足率，用于生成规划完成事件
+  const satSearch = ref('');        // 卫星列表搜索关键字（名称 / 载荷类型）
+  const isFullscreen = ref(false);  // 全屏展示状态
+  const autoRotate = ref(false);    // 地球自转展示开关（跟踪卫星时自动暂停）
+  let rotateHandler = null;         // Cesium postRender 自转回调引用
+
+  // 按关键字过滤卫星列表（匹配名称或载荷类型，不区分大小写）
+  const filteredSats = computed(() => {
+    const kw = satSearch.value.toLowerCase();
+    if (!kw) return satList.value;
+    return satList.value.filter(s =>
+      String(s.name).toLowerCase().includes(kw) ||
+      String(s.loadType || '').toLowerCase().includes(kw));
+  });
+
+  // 全屏展示切换（演示模式：浏览器级全屏）
+  function toggleFullscreen() {
+    if (document.fullscreenElement) {
+      document.exitFullscreen();
+    } else {
+      document.documentElement.requestFullscreen().catch(() => {});
+    }
+  }
+  function onFullscreenChange() {
+    isFullscreen.value = !!document.fullscreenElement;
+  }
+
+  // 地球自转展示：相机绕地轴缓慢旋转；用户选中卫星进入跟踪时自动暂停
+  function toggleAutoRotate(on) {
+    autoRotate.value = on;
+    if (!viewerRef) return;
+    if (on) {
+      rotateHandler = viewerRef.scene.postRender.addEventListener(() => {
+        // 跟踪视角下暂停自转，避免视角漂移
+        if (!focusMode.value) {
+          viewerRef.scene.camera.rotate(Cesium.Cartesian3.UNIT_Z, -Cesium.Math.toRadians(0.02));
+        }
+      });
+    } else if (rotateHandler) {
+      rotateHandler();
+      rotateHandler = null;
+    }
+  }
+
+  // Esc 快捷关闭详情面板并退出跟踪视角
+  function onKeydown(e) {
+    if (e.key === 'Escape' && selectedSat.value) closeDetail();
+  }
 
   // 面板数据轮询
   async function refreshHud() {
@@ -555,6 +615,9 @@
   onUnmounted(() => {
     if (hudTimer) { clearInterval(hudTimer); hudTimer = null; }
     window.removeEventListener('resize', handleResize);
+    window.removeEventListener('keydown', onKeydown);
+    document.removeEventListener('fullscreenchange', onFullscreenChange);
+    if (rotateHandler) { rotateHandler(); rotateHandler = null; }
     if (payloadChartInst) { payloadChartInst.dispose(); payloadChartInst = null; }
     if (taskStatusChartInst) { taskStatusChartInst.dispose(); taskStatusChartInst = null; }
     if (satisfactionChartInst) { satisfactionChartInst.dispose(); satisfactionChartInst = null; }
@@ -619,6 +682,8 @@
     viewer.clock.shouldAnimate = true;
     viewer._cesiumWidget._creditContainer.style.display = "none"
     viewerRef = viewer;  // 供 HUD 面板使用
+    window.addEventListener('keydown', onKeydown);
+    document.addEventListener('fullscreenchange', onFullscreenChange);
     // 添加底图（构造函数传 imageryProvider 会加载失败显示蓝色球体，需在创建后通过 imageryLayers 添加）
     viewer.imageryLayers.removeAll();
     viewer.imageryLayers.addImageryProvider(esri);
@@ -1264,14 +1329,70 @@
         color: rgba(0, 220, 255, 0.5);
     }
     .sim-time {
-        position: absolute;
-        right: 16px;
-        top: 50%;
-        transform: translateY(-50%);
         font-size: 13px;
         color: #7fd4ff;
         font-family: 'Courier New', monospace;
     }
+    .header-right {
+        position: absolute;
+        right: 16px;
+        top: 50%;
+        transform: translateY(-50%);
+        display: flex;
+        align-items: center;
+        gap: 10px;
+    }
+    /* 全屏展示按钮（演示模式） */
+    .fullscreen-btn {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 26px; height: 26px;
+        background: rgba(0, 220, 255, 0.08);
+        border: 1px solid rgba(0, 220, 255, 0.35);
+        border-radius: 4px;
+        color: #00dcff;
+        cursor: pointer;
+        transition: all 0.25s;
+    }
+    .fullscreen-btn:hover {
+        background: rgba(0, 220, 255, 0.2);
+        box-shadow: 0 0 10px rgba(0, 220, 255, 0.4);
+    }
+    /* 卫星列表搜索框 */
+    .sat-search {
+        position: relative;
+        margin: 0 10px 6px;
+    }
+    .sat-search-input {
+        width: 100%;
+        height: 26px;
+        padding: 0 22px 0 10px;
+        background: rgba(0, 220, 255, 0.05);
+        border: 1px solid rgba(0, 220, 255, 0.25);
+        border-radius: 4px;
+        color: #cfe8ff;
+        font-size: 11px;
+        outline: none;
+        transition: border-color 0.25s, box-shadow 0.25s;
+        box-sizing: border-box;
+    }
+    .sat-search-input::placeholder { color: rgba(159, 198, 232, 0.45); }
+    .sat-search-input:focus {
+        border-color: rgba(0, 220, 255, 0.6);
+        box-shadow: 0 0 8px rgba(0, 220, 255, 0.25);
+    }
+    .sat-search-clear {
+        position: absolute;
+        right: 7px;
+        top: 50%;
+        transform: translateY(-50%);
+        color: rgba(159, 198, 232, 0.6);
+        cursor: pointer;
+        font-size: 13px;
+        line-height: 1;
+    }
+    .sat-search-clear:hover { color: #00dcff; }
 
     /* 顶部指标（已内嵌进标题栏，原悬浮卡片样式移除） */
     .stat-value {
