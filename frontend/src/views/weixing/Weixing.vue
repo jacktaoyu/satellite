@@ -62,11 +62,15 @@
 
     <!-- 表格区域 -->
     <el-card shadow="never" class="table-card">
-      <el-table 
+      <!-- 加载中显示骨架屏 -->
+      <div v-if="loading" class="table-skeleton">
+        <el-skeleton :rows="8" animated />
+      </div>
+      <el-table
+        v-else
         ref="table"
-        :data="tableData" 
-        stripe 
-        v-loading="loading"
+        :data="tableData"
+        stripe
         @selection-change="handleSelectionChange"
         row-key="id"
       >

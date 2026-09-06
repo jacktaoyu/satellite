@@ -3096,3 +3096,13 @@ ctx.fillRect(-108, -22, 72, 44); ctx.fillRect(36, -22, 72, 44) // 太阳翼
 【修改】`frontend/src/styles/dark-tech.css`【卡片层次感】el-card 卡头/卡体上沿新增青色高亮渐变线，提升 HUD 面板层次。
 
 测试：`npm run build` 通过；Playwright 截图回归 /satellite/satellite_network（Logo 完整显示、事件图标 ✓）与 /satellite/renwu/shuxing（卡片高亮线 ✓）。
+
+## 2026-09-06 界面科技感增强 v4（骨架屏 / 星下点小地图 / 构建分包）
+
+【新增】`frontend/src/components/SubTrackMap.vue`【星下点轨迹小地图】卫星详情面板新增 Canvas 星下点轨迹图：经纬网格 + 完整一圈轨道轨迹（90 采样点、跨日界线分段、尾段渐亮）+ 当前位置脉冲光点；位置经 `getValueInReferenceFrame(FIXED)` 统一转地固系，采样窗口对齐 CZML 可用区间（仿真起始时自动向前采样）。
+【新增】`frontend/src/components/SatelliteIcon.vue`【组件提取】main.vue 侧栏卫星图标由内联 template 字符串提取为独立 SFC，消除 runtime-only 构建下 "runtime compilation is not supported" 警告。
+【修改】`frontend/src/views/Renwu/Shuxing.vue`、`Xingcu.vue`、`weixing/Weixing.vue` + `frontend/src/styles/dark-tech.css`【骨架屏】表格加载态由 v-loading 遮罩替换为深色 HUD 风格 el-skeleton 骨架屏（青色流动渐变），减少加载跳变感。
+【修改】`frontend/vite.config.js`【构建分包】新增 manualChunks：vendor-vue / vendor-element / vendor-echarts 三个长效缓存 chunk，入口 index.js 由约 1MB 降至 58KB（gzip 23KB），首屏只需加载入口 + 当前路由 chunk。
+【修改】`frontend/src/views/Satellite_network.vue`【接线】引入 SubTrackMap（selectedEntity / selectedPeriodMin 计算属性，周期由 TLE 平均运动推算，缺省 95min）。
+
+测试：`npm run build` 通过（分包体积已验证）；Playwright 截图回归：卫星详情星下点轨迹正确渲染正弦轨道（首点经度 69.665° 与详情面板 69.67° 一致、控制台零报错）；任务属性/星簇/卫星管理页骨架屏加载态正常。

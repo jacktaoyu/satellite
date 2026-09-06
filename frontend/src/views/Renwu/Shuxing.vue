@@ -95,11 +95,15 @@
     <el-card shadow="never" class="table-card">
       <el-tabs v-model="activeTab" @tab-change="handleTabChange">
         <el-tab-pane label="待执行任务" name="new">
-          <el-table 
+          <!-- 加载中显示骨架屏，比转圈更贴近表格结构、减少视觉跳变 -->
+          <div v-if="loading" class="table-skeleton">
+            <el-skeleton :rows="8" animated />
+          </div>
+          <el-table
+            v-else
             ref="taskTable"
-            :data="tableData" 
-            stripe 
-            v-loading="loading" 
+            :data="tableData"
+            stripe
             height="500"
             @selection-change="handleSelectionChange"
             row-key="id"

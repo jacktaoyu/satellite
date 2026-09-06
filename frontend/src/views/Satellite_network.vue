@@ -104,6 +104,9 @@
           <label class="hud-switch"><input type="checkbox" :checked="isFrustumShown(selectedSat.name)" @change="toggleFrustumShow(selectedSat.name, $event.target.checked)"><i></i></label>
         </div>
         <button class="hide-detail-btn" @click="closeDetail">隐藏</button>
+        <!-- 星下点轨迹小地图（仅选中卫星时显示） -->
+        <div class="panel-title subtrack-title">星下点轨迹</div>
+        <SubTrackMap :entity="selectedEntity" :viewer="viewerRef" :period-min="selectedPeriodMin" />
       </template>
       <div v-else class="empty-tip">点击卫星或左侧列表查看详情</div>
       <div class="panel-title">任务状态统计</div>
@@ -135,6 +138,7 @@
   import { authFetch } from "@/utils/authFetch.js";
   import Starfield from "@/components/Starfield.vue";
   import CountUp from "@/components/CountUp.vue";
+  import SubTrackMap from "@/components/SubTrackMap.vue";
 
   // ===== 大屏 HUD 数据状态 =====
   const simTime = ref('--');
@@ -148,6 +152,7 @@
   const eventList = ref([]);      // 底部实时事件滚动队列
   let viewerRef = null;        // Cesium viewer 引用
   let satDataSource = null;    // 卫星 CZML 数据源引用
+  const satDsReady = ref(0);   // satDataSource 赋值完成的响应式标志（computed 依赖用）
   let satEntities = [];        // 所有卫星 CZML 实体（供全局显隐开关遍历）
   let satGlowPoints = null;    // 卫星轨道拖尾光点 Map（key: 实体 id）
   let frustumPrims = null;     // 卫星视锥填充体 Map（key: 实体 id）
@@ -373,6 +378,21 @@
   const selectedExtra = computed(() =>
     selectedSat.value ? (satInfoMap.value[selectedSat.value.name] || null) : null
   );
+
+  // 当前选中卫星的 Cesium 实体（星下点小地图数据源）
+  const selectedEntity = computed(() => {
+    // 依赖 satDsReady：CZML 异步加载完成后触发重算
+    void satDsReady.value;
+    if (!selectedSat.value || !satDataSource) return null;
+    return satDataSource.entities.getById(`Satellite/${selectedSat.value.name}`) || null;
+  });
+  // 当前选中卫星的轨道周期（分钟，数值型；供小地图回溯采样）
+  const selectedPeriodMin = computed(() => {
+    const tle2 = selectedExtra.value && selectedExtra.value.tle2;
+    if (!tle2 || tle2.length < 63) return 95;
+    const mm = parseFloat(tle2.substring(52, 63));
+    return (isNaN(mm) || mm <= 0) ? 95 : 1440 / mm;
+  });
 
   // 由 TLE 第二行计算轨道周期（分钟）：周期 = 1440 / 平均运动（第 53-63 列，rev/day），解析失败显示 '-'
   function satPeriod(tle2) {
@@ -628,6 +648,7 @@
     // 在 CZML 数据加载完成后，为特定卫星添加扫描圆锥并绑定点击事件
     czmldata.then((dataSource) => {
       satDataSource = dataSource;  // 供 HUD 面板使用
+      satDsReady.value++;          // 通知响应式依赖（selectedEntity 等）数据源就绪
       satGlowPoints = new Map();   // 轨道拖尾光点（key: 卫星实体 id）
   
       // 找到 ID 为 'Sat_1_1' 的卫星
@@ -1416,6 +1437,8 @@
     }
     .close-btn { cursor: pointer; color: #68809a; font-size: 16px; }
     .close-btn:hover { color: #00dcff; }
+    /* 星下点小地图标题与上方内容拉开 */
+    .subtrack-title { margin-top: 6px; border-top: 1px solid rgba(0, 220, 255, 0.12); }
     .detail-name {
         padding: 10px 12px 4px;
         font-size: 15px;
