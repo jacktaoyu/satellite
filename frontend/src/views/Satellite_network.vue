@@ -582,6 +582,7 @@
     }
     selectedSat.value = null;
     applyAllVisibility();
+    // 飞回全球俯瞰视角（flyHome 已被上面的初始 setView 覆盖为全球视角）
     if (viewerRef) viewerRef.camera.flyHome(2);
   }
 
@@ -682,6 +683,12 @@
     viewer.clock.shouldAnimate = true;
     viewer._cesiumWidget._creditContainer.style.display = "none"
     viewerRef = viewer;  // 供 HUD 面板使用
+    // 初始与"回家"视角：全球俯瞰（CZML 加载后默认会缩放到数据可用区间起点、
+    // 高度贴地导致底图瓦片加载不出显示灰块，这里显式设为全球视角并覆盖默认 HOME）
+    const HOME_DEST = Cesium.Cartesian3.fromDegrees(105, 12, 2.6e7);
+    viewer.camera.setView({ destination: HOME_DEST });
+    viewer.camera.flyHome(0);
+    viewer.scene.screenSpaceCameraController.enableCollisionDetection = false;
     window.addEventListener('keydown', onKeydown);
     document.addEventListener('fullscreenchange', onFullscreenChange);
     // 添加底图（构造函数传 imageryProvider 会加载失败显示蓝色球体，需在创建后通过 imageryLayers 添加）
