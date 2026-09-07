@@ -440,9 +440,15 @@ export default {
         sceneMode: Cesium.SceneMode.SCENE2D  // 2D 平面示意更直观
       });
       this._caseViewer.imageryLayers.removeAll();
+      // 底图：Esri 全球卫星影像（全球覆盖无占位图）+ 高德中文注记叠加层
       this._caseViewer.imageryLayers.addImageryProvider(new Cesium.UrlTemplateImageryProvider({
-        url: 'https://webst0{s}.is.autonavi.com/appmaptile?style=6&x={x}&y={y}&z={z}',
-        subdomains: ['1', '2', '3', '4']
+        url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+        maximumLevel: 13
+      }));
+      this._caseViewer.imageryLayers.addImageryProvider(new Cesium.UrlTemplateImageryProvider({
+        url: 'https://webst0{s}.is.autonavi.com/appmaptile?style=8&x={x}&y={y}&z={z}',
+        subdomains: ['1', '2', '3', '4'],
+        maximumLevel: 13
       }));
       this._caseViewer._cesiumWidget._creditContainer.style.display = 'none';
       const positions = [];

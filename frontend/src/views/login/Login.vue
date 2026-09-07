@@ -59,11 +59,11 @@ export default {
       });
       // 去掉版权信息
       viewer._cesiumWidget._creditContainer.style.display = "none";
-      // 高德卫星影像图层（与卫星网络页保持一致，避免默认图层加载失败）
+      // 底图：Esri 全球卫星影像（与卫星网络页保持一致，全球覆盖无占位图）
       viewer.imageryLayers.removeAll();
       viewer.imageryLayers.addImageryProvider(new Cesium.UrlTemplateImageryProvider({
-          url: 'https://webst0{s}.is.autonavi.com/appmaptile?style=6&x={x}&y={y}&z={z}',
-          subdomains: ['1', '2', '3', '4']
+          url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+          maximumLevel: 13
       }));
       // 禁用鼠标交互，作为纯展示背景
       const controller = viewer.scene.screenSpaceCameraController;

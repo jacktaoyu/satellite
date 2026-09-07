@@ -645,10 +645,18 @@
     //   url:"https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer",
     //   enablePickFeatures:false
     // })
-    // 高德卫星影像图层（OSM 在国内不可达，改用高德瓦片）
+    // 底图：Esri 全球卫星影像。高德 style=6 瓦片在海洋/偏远区域 z8 起即返回
+    // “此区域无卫星图”占位图；Esri 全球覆盖至 z13，设 maximumLevel 后更高层级
+    // 自动拉伸低级瓦片，任何区域都不会出现占位文字。
     const esri = new Cesium.UrlTemplateImageryProvider({
-      url: 'https://webst0{s}.is.autonavi.com/appmaptile?style=6&x={x}&y={y}&z={z}',
-      subdomains: ['1', '2', '3', '4']
+      url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+      maximumLevel: 13
+    });
+    // 叠加高德中文路网/地名注记层（透明 PNG，仅标注，不遮挡影像）
+    const amapLabel = new Cesium.UrlTemplateImageryProvider({
+      url: 'https://webst0{s}.is.autonavi.com/appmaptile?style=8&x={x}&y={y}&z={z}',
+      subdomains: ['1', '2', '3', '4'],
+      maximumLevel: 13
     });
     // 创建 Cesium 视图
     let viewer = new Cesium.Viewer("cesiumContainer", {
@@ -694,6 +702,7 @@
     // 添加底图（构造函数传 imageryProvider 会加载失败显示蓝色球体，需在创建后通过 imageryLayers 添加）
     viewer.imageryLayers.removeAll();
     viewer.imageryLayers.addImageryProvider(esri);
+    viewer.imageryLayers.addImageryProvider(amapLabel);
     // // 把cesium的动画开关打开
     // viewer.clock.shouldAnimate = true;
     // window.viewer = viewer;
