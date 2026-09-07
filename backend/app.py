@@ -18,6 +18,7 @@ from blueprint.User import user_bp
 import extions
 from config import TLE, sat_parms
 from database import db
+from model.AuthTokenModel import AuthTokenModel
 from model.UserModel import UserModel
 from flask_cors import CORS
 
@@ -81,7 +82,7 @@ def initialize_system():
         # 数据库表操作：仅创建不存在的表，保留已有数据。
         # 用 SQLAlchemy inspect 判断表是否存在（原先使用 MySQL 方言 SHOW TABLES，
         # 在 SQLite 等其它数据库上会直接报语法错误）
-        tables_to_create = ['t_new_task', 't_old_task', 't_cluster_star_relation', 't_cluster', 't_user', 't_case_history']
+        tables_to_create = ['t_new_task', 't_old_task', 't_cluster_star_relation', 't_cluster', 't_user', 't_case_history', 't_auth_token']
         inspector = inspect(db.engine)
         existing_tables = set(inspector.get_table_names())
         for table_name in tables_to_create:
@@ -102,21 +103,23 @@ def initialize_system():
         print("系统初始化完成")
 
 
-# ===== 鉴权：内存 token 表（token -> {"username": str, "expiry": datetime}） =====
-# 注意：token 仅保存在内存中，后端重启后全部失效，前端收到 401 后需重新登录
-VALID_TOKENS = {}
+# ===== 鉴权：token 落库持久化（t_auth_token 表） =====
+# 原先仅保存在内存字典中，后端重启即全员掉线；落库后重启不影响在线用户，
+# 前端仍按 401 语义处理过期/吊销（清理登录态跳登录页），行为完全兼容
 TOKEN_LOCK = threading.Lock()
 TOKEN_TTL_HOURS = 12
 
 
 def issue_token(username):
-    """签发 token 并写入内存 token 表（有效期 12 小时）"""
+    """签发 token 并落库（有效期 12 小时）"""
     token = secrets.token_hex(16)
     with TOKEN_LOCK:
-        VALID_TOKENS[token] = {
-            "username": username,
-            "expiry": datetime.now() + timedelta(hours=TOKEN_TTL_HOURS)
-        }
+        db.session.add(AuthTokenModel(
+            token=token,
+            username=username,
+            expiry=datetime.now() + timedelta(hours=TOKEN_TTL_HOURS)
+        ))
+        db.session.commit()
     return token
 
 
@@ -125,20 +128,21 @@ def check_token(token):
     if not token:
         return None
     with TOKEN_LOCK:
-        info = VALID_TOKENS.get(token)
+        info = AuthTokenModel.query.filter_by(token=token).first()
         if not info:
             return None
-        if info["expiry"] < datetime.now():
-            del VALID_TOKENS[token]
+        if info.expiry < datetime.now():
+            db.session.delete(info)
+            db.session.commit()
             return None
-        return info["username"]
+        return info.username
 
 
 def revoke_user_tokens(username):
     """使指定用户的所有已签发 token 失效（如改密后强制重新登录）"""
     with TOKEN_LOCK:
-        for token in [t for t, info in VALID_TOKENS.items() if info["username"] == username]:
-            del VALID_TOKENS[token]
+        AuthTokenModel.query.filter_by(username=username).delete()
+        db.session.commit()
 
 
 def parse_user_type(value):

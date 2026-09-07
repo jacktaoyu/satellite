@@ -717,7 +717,15 @@
     // 添加底图（构造函数传 imageryProvider 会加载失败显示蓝色球体，需在创建后通过 imageryLayers 添加）
     viewer.imageryLayers.removeAll();
     viewer.imageryLayers.addImageryProvider(esri);
-    viewer.imageryLayers.addImageryProvider(amapLabel);
+    const amapLabelLayer = viewer.imageryLayers.addImageryProvider(amapLabel);
+    // 注记层按相机高度分级显隐：全球视角（>1200万米）下中文地名密成一团且浪费瓦片请求，
+    // 仅在拉近到区域/城市级别时显示
+    const updateLabelVisibility = () => {
+      amapLabelLayer.show = viewer.camera.positionCartographic.height < 1.2e7;
+    };
+    viewer.camera.changed.addEventListener(updateLabelVisibility);
+    viewer.camera.percentageChanged = 0.01;  // 默认 0.5 节流阈值太大，小范围移动不触发
+    updateLabelVisibility();
     // // 把cesium的动画开关打开
     // viewer.clock.shouldAnimate = true;
     // window.viewer = viewer;

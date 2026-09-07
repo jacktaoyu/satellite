@@ -3184,3 +3184,8 @@ ctx.fillRect(-108, -22, 72, 44); ctx.fillRect(36, -22, 72, 44) // 太阳翼
 - authFetch 的 401 处理与 request.js 统一：清理全部 localStorage key，且公开页面（门户/登录/注册）仅静默清理不强制跳转。
 - 后端建表判断由 MySQL 方言 SHOW TABLES 改为 SQLAlchemy inspect，SQLite 等其它数据库不再报语法错误。
 - 测试：npm run build 通过；Playwright 全 13 页面回归零报错；SQLite 环境下建表日志正常（"已存在，跳过创建"）。
+
+## 2026-09-07 token 持久化与注记层分级显隐
+- 登录 token 由内存字典改为落库（新表 t_auth_token），后端重启后在线用户不再全员掉线；签发/校验/吊销语义与 401 前端处理完全兼容。
+- 卫星网络页高德中文注记层按相机高度分级显隐：全球视角（>1200万米）隐藏，拉近到区域级别自动显示，减少瓦片请求与视觉噪声。
+- 测试：npm run build 通过；Playwright 13 页面回归零报错；实测重启后端后旧 token 访问仍 200；全球/拉近两视角截图确认注记层显隐正确。
