@@ -444,13 +444,20 @@ export default {
     this.getList();
     this.getStats();
     this.loadClusters();
-    // 任务列表 5 秒轮询，状态变更即时反馈（文档 3.7.10：表格与后端任务库实时联动）；弹窗打开时暂停轮询避免干扰编辑
+    // 任务列表 5 秒轮询，状态变更即时反馈（文档 3.7.10：表格与后端任务库实时联动）；
+    // 弹窗打开时暂停避免干扰编辑；页面在后台标签时同样暂停，回前台立即补刷一次
     this._pollTimer = setInterval(() => {
+      if (document.hidden) return;
       if (!this.addDialogVisible && !this.detailVisible) this.getList();
     }, 5000);
+    this._onVisibility = () => {
+      if (!document.hidden && !this.addDialogVisible && !this.detailVisible) this.getList();
+    };
+    document.addEventListener('visibilitychange', this._onVisibility);
   },
   beforeUnmount() {
     if (this._pollTimer) { clearInterval(this._pollTimer); this._pollTimer = null; }
+    if (this._onVisibility) { document.removeEventListener('visibilitychange', this._onVisibility); this._onVisibility = null; }
   },
   methods: {
     normalizeTask(task = {}, source = 'new') {

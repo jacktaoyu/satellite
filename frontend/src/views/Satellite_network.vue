@@ -4,6 +4,15 @@
     <Starfield :density="0.9" :opacity="0.8" />
     <div id="cesiumContainer"></div>
 
+    <!-- 轨道数据加载提示：首次需后端解算全部卫星轨道，耗时较长时给出明确反馈 -->
+    <transition name="fade">
+      <div v-if="czmlLoading" class="czml-loading">
+        <div class="czml-loading-ring"></div>
+        <div class="czml-loading-text">正在解算卫星轨道数据…</div>
+        <div class="czml-loading-sub">ORBIT DATA COMPUTING</div>
+      </div>
+    </transition>
+
     <!-- 中央态势装饰环（纯装饰，不遮挡交互） -->
     <div class="center-hud">
       <div class="radar-ring ring-a"></div>
@@ -147,7 +156,7 @@
 <script setup>
   import { onMounted, onUnmounted, ref, reactive, computed } from "vue";
   import * as Cesium from "cesium";
-  import * as echarts from "echarts";
+  import echarts from "@/utils/echarts.js";
   import { authFetch } from "@/utils/authFetch.js";
   import Starfield from "@/components/Starfield.vue";
   import CountUp from "@/components/CountUp.vue";
@@ -158,6 +167,7 @@
 
   // ===== 大屏 HUD 数据状态 =====
   const simTime = ref('--');
+  const czmlLoading = ref(true);  // 轨道数据加载中（首次生成需解算全部卫星轨道，耗时较长）
   const satList = ref([]);
   const runningTaskCount = ref(0);
   const satisfaction = ref('--');
@@ -234,6 +244,10 @@
   // Esc 快捷关闭详情面板并退出跟踪视角
   function onKeydown(e) {
     if (e.key === 'Escape' && selectedSat.value) closeDetail();
+  }
+  // 页面回到前台时补刷一次 HUD，避免数据滞后
+  function onVisibility() {
+    if (!document.hidden) refreshHud();
   }
 
   // 面板数据轮询
@@ -618,6 +632,7 @@
     window.removeEventListener('resize', handleResize);
     window.removeEventListener('keydown', onKeydown);
     document.removeEventListener('fullscreenchange', onFullscreenChange);
+    document.removeEventListener('visibilitychange', onVisibility);
     if (rotateHandler) { rotateHandler(); rotateHandler = null; }
     if (payloadChartInst) { payloadChartInst.dispose(); payloadChartInst = null; }
     if (taskStatusChartInst) { taskStatusChartInst.dispose(); taskStatusChartInst = null; }
@@ -708,7 +723,9 @@
     // window.viewer = viewer;
     // localStorage.setItem("viewer", viewer);
     // 加载 CZML 数据：优先使用后端根据当前 TLE 动态生成的数据，失败时回退本地静态文件
+    // 首次生成需解算全部卫星轨道，耗时较长，期间展示加载提示
     async function loadCzmlDataSource() {
+      czmlLoading.value = true;
       try {
         const res = await authFetch('/getCzml');
         if (res.ok) {
@@ -732,6 +749,7 @@
   
     // 在 CZML 数据加载完成后，为特定卫星添加扫描圆锥并绑定点击事件
     czmldata.then((dataSource) => {
+      czmlLoading.value = false;   // 轨道数据就绪，关闭加载提示
       satDataSource = dataSource;  // 供 HUD 面板使用
       satDsReady.value++;          // 通知响应式依赖（selectedEntity 等）数据源就绪
       satGlowPoints = new Map();   // 轨道拖尾光点（key: 卫星实体 id）
@@ -989,6 +1007,7 @@
         }
       }, Cesium.ScreenSpaceEventType.LEFT_CLICK);
     }).catch((error) => {
+      czmlLoading.value = false;  // 失败同样关闭加载提示，避免永久转圈
       console.error("加载 CZML 数据失败：", error);
     });
 
@@ -1122,9 +1141,10 @@
     viewer.dataSources.add(Networking_for_GroundStation);
     Object.keys(Networking_Dicts).forEach(key => {Creat_Networks_for_GroundSations(key, Networking_Dicts[key])});
 
-    // 启动 HUD 数据轮询（5秒刷新一次）
+    // 启动 HUD 数据轮询（5秒刷新一次）；页面在后台标签时暂停，回前台立即补刷一次
     refreshHud();
-    hudTimer = setInterval(refreshHud, 5000);
+    hudTimer = setInterval(() => { if (!document.hidden) refreshHud(); }, 5000);
+    document.addEventListener('visibilitychange', onVisibility);
     // 窗口尺寸变化时重排 HUD 图表
     window.addEventListener('resize', handleResize);
     function Creat_Networks_for_GroundSations(src, dst_dicts){
@@ -1185,6 +1205,45 @@
         border-top-color: rgba(0, 240, 255, 0.7);
         animation: hud-spin 18s linear infinite reverse;
     }
+    /* 轨道数据加载提示层 */
+    .czml-loading {
+        position: absolute;
+        left: 50%;
+        top: 50%;
+        transform: translate(-50%, -50%);
+        z-index: 30;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 12px;
+        padding: 26px 34px;
+        background: rgba(4, 14, 32, 0.82);
+        border: 1px solid rgba(0, 220, 255, 0.35);
+        border-radius: 10px;
+        box-shadow: 0 0 30px rgba(0, 220, 255, 0.15);
+        backdrop-filter: blur(8px);
+    }
+    .czml-loading-ring {
+        width: 38px;
+        height: 38px;
+        border-radius: 50%;
+        border: 2px solid rgba(0, 220, 255, 0.2);
+        border-top-color: #00f0ff;
+        animation: hud-spin 1s linear infinite;
+    }
+    .czml-loading-text {
+        font-size: 13px;
+        letter-spacing: 2px;
+        color: #cfeeff;
+    }
+    .czml-loading-sub {
+        font-size: 10px;
+        letter-spacing: 3px;
+        color: #4d7a9a;
+        font-family: 'Courier New', monospace;
+    }
+    .fade-enter-active, .fade-leave-active { transition: opacity 0.3s ease; }
+    .fade-enter-from, .fade-leave-to { opacity: 0; }
     @keyframes hud-spin {
         from { transform: rotate(0deg); }
         to { transform: rotate(360deg); }

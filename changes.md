@@ -3176,3 +3176,11 @@ ctx.fillRect(-108, -22, 72, 44); ctx.fillRect(36, -22, 72, 44) // 太阳翼
 - 顶栏头像去掉 alipay 外部 CDN 依赖，改为本地首字符头像（内网/离线不再破图）；修改密码成功后强制清理登录态跳回登录页（后端改密即吊销 token，原先用户停留在失效会话中）；登录按账号类型分流，普通用户直接回门户页，不再先闯控制台被守卫弹“无权限”警告；系统设置页上传地址由硬编码 host:5001 改为统一 API_BASE（支持 VITE_API_BASE 部署覆盖）。
 - 后端 /initFiles、/networkParametersList 增加运控中心未初始化判空（返回 503 而非 500）；UserModel 注释与实际 user_type 取值对齐。
 - 测试：npm run build 通过；Playwright 回归 13 个页面零报错；实测非管理员登录分流至门户、改密后旧 token 立即 401、新密码可正常登录。
+
+## 2026-09-07 性能与工程优化批次
+- 图标按需注册（原全量注册近 300 个 Element Plus 图标，现仅注册实际用到的 35 个）；ECharts 改按需装配（仅注册饼图/柱状/折线/雷达+常用组件，vendor-echarts 由 1037KB 降至 581KB，gzip 343→195KB）。
+- 三个页面的 5 秒轮询（任务列表、性能页仿真时间、网络页 HUD）在后台标签页自动暂停，回前台立即补刷一次，减少无效请求。
+- 网络页新增轨道数据加载提示层（"正在解算卫星轨道数据…"），CZML 首次生成耗时期间不再面对空白地球。
+- authFetch 的 401 处理与 request.js 统一：清理全部 localStorage key，且公开页面（门户/登录/注册）仅静默清理不强制跳转。
+- 后端建表判断由 MySQL 方言 SHOW TABLES 改为 SQLAlchemy inspect，SQLite 等其它数据库不再报语法错误。
+- 测试：npm run build 通过；Playwright 全 13 页面回归零报错；SQLite 环境下建表日志正常（"已存在，跳过创建"）。

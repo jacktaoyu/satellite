@@ -6,7 +6,7 @@ from datetime import datetime, timedelta, timezone
 from threading import Thread
 from flask import Flask, request, jsonify, send_file
 from waitress import serve
-from sqlalchemy import text
+from sqlalchemy import inspect
 from werkzeug.security import generate_password_hash, check_password_hash
 
 from Service.ControlleService import OperationsControlCenter
@@ -78,17 +78,19 @@ def initialize_system():
             _occ_thread.daemon = True
             _occ_thread.start()
 
-        # 数据库表操作：仅创建不存在的表，保留已有数据
+        # 数据库表操作：仅创建不存在的表，保留已有数据。
+        # 用 SQLAlchemy inspect 判断表是否存在（原先使用 MySQL 方言 SHOW TABLES，
+        # 在 SQLite 等其它数据库上会直接报语法错误）
         tables_to_create = ['t_new_task', 't_old_task', 't_cluster_star_relation', 't_cluster', 't_user', 't_case_history']
+        inspector = inspect(db.engine)
+        existing_tables = set(inspector.get_table_names())
         for table_name in tables_to_create:
             try:
-                with db.engine.connect() as conn:
-                    result = conn.execute(text(f"SHOW TABLES LIKE '{table_name}'"))
-                    if result.rowcount == 0:
-                        db.metadata.tables[table_name].create(db.engine)
-                        print(f"成功创建表 {table_name}")
-                    else:
-                        print(f"表 {table_name} 已存在，跳过创建")
+                if table_name not in existing_tables:
+                    db.metadata.tables[table_name].create(db.engine)
+                    print(f"成功创建表 {table_name}")
+                else:
+                    print(f"表 {table_name} 已存在，跳过创建")
             except Exception as e:
                 if "already exists" in str(e):
                     print(f"警告：表 {table_name} 已存在，无需创建")

@@ -233,7 +233,7 @@
 
 <script>
 import { ElMessage } from 'element-plus';
-import * as echarts from 'echarts';
+import echarts from '@/utils/echarts.js';
 import {
   TrendCharts, Refresh, Download, CircleCheck, Cpu, Timer, DataAnalysis,
   PieChart, Histogram, Document
@@ -297,19 +297,35 @@ export default {
   mounted() {
     this.loadData();
     this.loadClusterOptions();
-    // 轮询仿真时间，保持与卫星网络页一致的时间锚点
-    this.simTimer = setInterval(this.loadSimTime, 5000);
+    // 轮询仿真时间，保持与卫星网络页一致的时间锚点；
+    // 页面切到后台标签时暂停轮询（document.hidden），回前台立即补刷一次，减少无效请求
+    this.startSimTimer();
+    document.addEventListener('visibilitychange', this.handleVisibility);
     window.addEventListener('resize', this.handleResize);
   },
   beforeUnmount() {
+    document.removeEventListener('visibilitychange', this.handleVisibility);
     window.removeEventListener('resize', this.handleResize);
-    if (this.simTimer) {
-      clearInterval(this.simTimer);
-      this.simTimer = null;
-    }
+    this.stopSimTimer();
     this.disposeCharts();
   },
   methods: {
+    startSimTimer() {
+      if (this.simTimer) return;
+      this.simTimer = setInterval(() => {
+        if (!document.hidden) this.loadSimTime();
+      }, 5000);
+    },
+    stopSimTimer() {
+      if (this.simTimer) {
+        clearInterval(this.simTimer);
+        this.simTimer = null;
+      }
+    },
+    handleVisibility() {
+      // 回到前台时补刷一次，避免时间显示滞后
+      if (!document.hidden) this.loadSimTime();
+    },
     // 惰性获取图表实例：隐藏 tab 中的图表在首次可见时才初始化，避免 0 尺寸问题
     getChartInst(refName) {
       if (!chartInsts[refName] && this.$refs[refName]) {
