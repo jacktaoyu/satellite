@@ -115,7 +115,13 @@ export default {
                   localStorage.setItem("isAdmin", res.data.data.isAdmin);
                   localStorage.setItem("token", res.data.data.token);
                   this.$message.success("登录成功") //提示成功消息
-                  this.$router.push('/satellite/satellite_network')
+                  // 按账号类型分流：管理员进控制台；普通用户无控制台权限，
+                  // 直接回门户页，避免被路由守卫拦截弹“无权限”警告
+                  if (String(res.data.data.isAdmin) === '1') {
+                      this.$router.push('/satellite/satellite_network')
+                  } else {
+                      this.$router.push('/portal')
+                  }
               } else {
                   this.$message.error(res.data.meta.message); //提示错误消息
               }

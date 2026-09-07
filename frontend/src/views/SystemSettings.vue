@@ -415,7 +415,8 @@
 
 <script>
 import { ElMessage } from 'element-plus';
-import { 
+import { API_BASE } from '@/utils/config.js';
+import {
   Setting, Clock, Switch, Check, Close, RefreshRight,
   Upload, UploadFilled, InfoFilled, Document, Delete, Edit, Refresh, Download, Plus
 } from '@element-plus/icons-vue';
@@ -530,8 +531,9 @@ export default {
     }
   },
   created() {
-    const host = window.location.hostname || '127.0.0.1'
-    this.baseUrl = `http://${host}:5001`;
+    // 上传地址与全局 API_BASE 保持一致（支持 VITE_API_BASE 环境变量覆盖），
+    // 原先按 window.location.hostname + 固定 5001 端口拼接，部署到其它端口或 https 时上传会失败
+    this.baseUrl = API_BASE;
     this._retryTimers = [];  // 上传后重试刷新卫星列表的定时器（非响应式）
     this._satListUpdatedNotified = false;
     this.restorePreferences();

@@ -261,6 +261,8 @@ def submit_sate_params():
 
     # file1.save(file1_path)
     file2.save(file2_path)
+    if _occ_instance is None:
+        return jsonify({"error": "运控中心未初始化，请稍后重试"}), 503
     _occ_instance.is_submit_sat = True
     return jsonify({"message": "Files saved successfully"}), 200
 
@@ -376,6 +378,8 @@ def network_parameters_list():
     sat_list = form.get("list") if form else None
     if sat_list is None:
         return jsonify({"error": "缺少list参数"}), 400
+    if _occ_instance is None:
+        return jsonify({"error": "运控中心未初始化，请稍后重试"}), 503
     for sat_dict in sat_list:
         print(sat_dict)
         print(sat_dict["name"])

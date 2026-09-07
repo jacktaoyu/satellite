@@ -63,7 +63,8 @@
           </div>
           <el-dropdown style="cursor: pointer;height:100%;display: flex;">
             <div style="padding: 0 12px;display: flex;align-items: center;justify-content: center;">
-              <el-avatar :size="26" src="https://gw.alipayobjects.com/zos/antfincdn/XAosXuNZyF/BiazfanxmamNRoxxVxka.png" />
+              <!-- 头像改为本地内联 SVG，去掉外部 CDN 依赖（内网/离线环境外链会破图） -->
+              <el-avatar :size="26" class="user-avatar">{{ avatarInitial }}</el-avatar>
               <span style="margin-left:10px;color:#7fd4ff;">{{ nickname }}</span>
             </div>
             <template #dropdown>
@@ -136,6 +137,12 @@ export default {
       },
     }
   },
+  computed: {
+    // 头像取昵称首字符（无昵称时退化为默认字母）
+    avatarInitial() {
+      return (this.nickname || 'U').trim().charAt(0).toUpperCase() || 'U';
+    }
+  },
   created() {
     this.nickname = localStorage.getItem("nickname");
     this.isAdmin = localStorage.getItem("isAdmin");
@@ -161,10 +168,12 @@ export default {
       this.pwdSubmitting = true;
       try {
         await this.$request.post('/updatePassword', { username, password, confirmPassword });
-        this.$message.success('密码修改成功');
         this.pwdDialogVisible = false;
-        this.pwdForm.password = "";
-        this.pwdForm.confirmPassword = "";
+        // 后端改密成功后会吊销该用户全部 token，当前会话已失效，必须强制重新登录，
+        // 否则用户停留在系统内、下一次请求才被 401 弹走，体验割裂
+        this.$message.success('密码修改成功，请重新登录');
+        localStorage.clear();
+        this.$router.push('/login');
       } catch (err) {
         // 失败信息（含后端 400 的 meta.message）由 request.js 响应拦截器统一弹出
       } finally {
@@ -350,6 +359,16 @@ export default {
   background: #52ffa8;
   box-shadow: 0 0 8px rgba(82, 255, 168, 0.8);
   animation: dot-pulse 2s ease-in-out infinite;
+}
+
+/* 首字符头像：与顶栏青色 HUD 风格一致 */
+.user-avatar {
+  background: linear-gradient(135deg, rgba(0, 220, 255, 0.35), rgba(124, 77, 255, 0.35));
+  border: 1px solid rgba(0, 220, 255, 0.45);
+  color: #d8f6ff;
+  font-size: 13px;
+  font-weight: 600;
+  box-shadow: 0 0 8px rgba(0, 220, 255, 0.3);
 }
 @keyframes dot-pulse {
   0%, 100% { opacity: 1; }
