@@ -851,9 +851,15 @@ export default {
   grid-template-columns: repeat(4, 1fr);
   gap: 14px;
   margin-top: 30px;
-  width: min(880px, 92vw);
+  /* 限制整体宽度不越过屏幕中线的地球区，避免最右卡片遮挡地球 */
+  width: min(720px, 46vw, 92vw);
   animation: fade-up 0.7s 0.5s ease-out both;
 }
+
+/* 卡片内容紧凑化，适配收窄后的宽度 */
+.hero-features .feature-card { padding: 13px 14px 14px; }
+.hero-features .feature-title { font-size: 13px; }
+.hero-features .feature-desc { font-size: 10px; }
 
 .feature-card {
   position: relative;
