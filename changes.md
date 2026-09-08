@@ -3194,3 +3194,7 @@ ctx.fillRect(-108, -22, 72, 44); ctx.fillRect(36, -22, 72, 44) // 太阳翼
 - 系统模式切换与调度方案选择原先仅写 localStorage、刷新即丢且不通知后端；现改为读取 GET /getAutoRun、/getModel 初始化，切换时调用 POST /changeAutoRun、/changeModel（方案映射：任务满足率=1/资源利用率=2/成像质量=3，自主模式=0），失败自动回滚。
 - 新增“星簇约束配置”卡片：对接 GET/POST /constraintConfig，支持时间约束（min）/能源约束（Wh）/固存约束（GB）三项的启停与阈值自定义管理，补齐技术说明书“不少于3种星簇级约束项自定义管理”指标。
 - 测试：npm run build 通过；changeAutoRun/changeModel/constraintConfig 写入-回读闭环验证通过；Playwright 13 页面回归零报错、零失败请求。
+
+## 2026-09-09 修复无客户端时任务规划永远不启动的问题
+- 卫星网络线程原先在 _start_socket_server 中永久阻塞等待 NODES 个客户端连接，无客户端时主循环进不去、is_trace 恒为 False，任务规划完全不启动；改为非阻塞 accept（1s 超时），每轮主循环调用 _try_accept_client 尝试接入，无客户端时规划/仿真照常运行，客户端可随时接入。
+- 测试：无客户端状态下提交任务，规划正常完成（调度 1/1，评分正常）；随后启动 2 个模拟客户端被正常接收（所有客户端已连接）；python 语法检查通过。
