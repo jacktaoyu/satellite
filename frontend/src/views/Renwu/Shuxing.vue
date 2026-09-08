@@ -95,12 +95,16 @@
     <el-card shadow="never" class="table-card">
       <el-tabs v-model="activeTab" @tab-change="handleTabChange">
         <el-tab-pane label="待执行任务" name="new">
-          <el-table 
+          <!-- 加载中显示骨架屏，比转圈更贴近表格结构、减少视觉跳变 -->
+          <div v-if="loading" class="table-skeleton">
+            <el-skeleton :rows="8" animated />
+          </div>
+          <el-table
+            v-else
             ref="taskTable"
-            :data="tableData" 
-            stripe 
-            v-loading="loading" 
-            height="500"
+            :data="tableData"
+            stripe
+            max-height="500"
             @selection-change="handleSelectionChange"
             row-key="id"
           >
@@ -183,7 +187,7 @@
         </el-tab-pane>
 
         <el-tab-pane label="历史任务" name="old">
-          <el-table :data="oldTaskData" stripe v-loading="loading" height="500">
+          <el-table :data="oldTaskData" stripe v-loading="loading" max-height="500">
             <el-table-column prop="id" label="ID" width="60" />
             <el-table-column prop="task_name" label="任务名称" width="150" show-overflow-tooltip />
             <el-table-column prop="type" label="任务类型" width="100">
@@ -440,13 +444,20 @@ export default {
     this.getList();
     this.getStats();
     this.loadClusters();
-    // 任务列表 5 秒轮询，状态变更即时反馈（文档 3.7.10：表格与后端任务库实时联动）；弹窗打开时暂停轮询避免干扰编辑
+    // 任务列表 5 秒轮询，状态变更即时反馈（文档 3.7.10：表格与后端任务库实时联动）；
+    // 弹窗打开时暂停避免干扰编辑；页面在后台标签时同样暂停，回前台立即补刷一次
     this._pollTimer = setInterval(() => {
+      if (document.hidden) return;
       if (!this.addDialogVisible && !this.detailVisible) this.getList();
     }, 5000);
+    this._onVisibility = () => {
+      if (!document.hidden && !this.addDialogVisible && !this.detailVisible) this.getList();
+    };
+    document.addEventListener('visibilitychange', this._onVisibility);
   },
   beforeUnmount() {
     if (this._pollTimer) { clearInterval(this._pollTimer); this._pollTimer = null; }
+    if (this._onVisibility) { document.removeEventListener('visibilitychange', this._onVisibility); this._onVisibility = null; }
   },
   methods: {
     normalizeTask(task = {}, source = 'new') {
@@ -1234,7 +1245,7 @@ export default {
   display: flex;
   justify-content: flex-end;
   padding-top: 16px;
-  border-top: 1px solid #ebeef5;
+  border-top: 1px solid rgba(0, 220, 255, 0.12);
   margin-top: 16px;
 }
 

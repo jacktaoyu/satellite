@@ -304,26 +304,37 @@ class SatelliteNetwork:
         self.client_recv_threads = []
 
     def _start_socket_server(self):
-        """启动 socket 服务器，等待NODES个客户端连接"""
-        # TODO: accept为永久阻塞调用，若无客户端连接主流程会一直阻塞在此处；
-        #  如需支持无客户端启动，可考虑 settimeout 循环 accept 或改为异步处理
-        print("等待客户端连接...")
-        while len(self.client_sockets) < NODES:
+        """启动 socket 服务器：非阻塞 accept，主循环内逐步接收客户端连接。
+
+        原先此处 while 循环永久阻塞等待 NODES 个客户端，无客户端时卫星网络线程
+        无法进入主循环，is_trace 永远为 False，任务规划不会启动；改为每次主循环
+        尝试一次带超时的 accept，无客户端时规划/仿真照常运行，客户端可随时接入。
+        """
+        self.server_socket.settimeout(1.0)  # accept 超时后返回主循环，避免阻塞规划
+        print("socket 服务已就绪（非阻塞模式），客户端可随时连接")
+
+    def _try_accept_client(self):
+        """尝试接收一个客户端连接（非阻塞）；无待处理连接时直接返回"""
+        if len(self.client_sockets) >= NODES:
+            return
+        try:
             client_socket, client_address = self.server_socket.accept()
-            if not self._verify_client_token(client_socket, client_address):
-                client_socket.close()
-                continue
-            print(f"客户端 {client_address[0]}:{client_address[1]} 已连接")
-            self.client_sockets.append(client_socket)
-            # 为每个客户端创建接收线程
-            # send_thread = threading.Thread(target=self._send_tasks, args=(client_socket,))
-            recv_thread = threading.Thread(target=self._receive_results, args=(client_socket,))
-            # self.client_send_threads.append(send_thread)
-            self.client_recv_threads.append(recv_thread)
-            # send_thread.start()
-            recv_thread.start()
-        print("所有客户端已连接")
-        self.is_connect = True
+        except (socket.timeout, BlockingIOError):
+            return
+        except OSError:
+            return
+        if not self._verify_client_token(client_socket, client_address):
+            client_socket.close()
+            return
+        print(f"客户端 {client_address[0]}:{client_address[1]} 已连接")
+        self.client_sockets.append(client_socket)
+        # 为每个客户端创建接收线程
+        recv_thread = threading.Thread(target=self._receive_results, args=(client_socket,))
+        self.client_recv_threads.append(recv_thread)
+        recv_thread.start()
+        if len(self.client_sockets) >= NODES:
+            print("所有客户端已连接")
+            self.is_connect = True
 
     def _verify_client_token(self, client_socket, client_address):
         """校验客户端第一条握手消息中的 token，失败返回 False"""
@@ -1045,6 +1056,8 @@ class SatelliteNetwork:
             while True:  # 更新网络状态和收集结果
                 try:
                     print("卫星网络的当前时间：", self.now_time)
+                    # 非阻塞接收新客户端连接（无客户端时规划/仿真照常运行）
+                    self._try_accept_client()
                     # 检查所有的卫星，执行任务
                     self.check_execute_tasks(self.now_time, self.time_multiple)
                     self.collect_results()

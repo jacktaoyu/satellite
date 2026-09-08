@@ -1,6 +1,17 @@
 <template>
   <div class="situation-page">
+    <!-- 星空粒子背景（Cesium 地球之下，填补深空区域） -->
+    <Starfield :density="0.9" :opacity="0.8" />
     <div id="cesiumContainer"></div>
+
+    <!-- 轨道数据加载提示：首次需后端解算全部卫星轨道，耗时较长时给出明确反馈 -->
+    <transition name="fade">
+      <div v-if="czmlLoading" class="czml-loading">
+        <div class="czml-loading-ring"></div>
+        <div class="czml-loading-text">正在解算卫星轨道数据…</div>
+        <div class="czml-loading-sub">ORBIT DATA COMPUTING</div>
+      </div>
+    </transition>
 
     <!-- 中央态势装饰环（纯装饰，不遮挡交互） -->
     <div class="center-hud">
@@ -13,31 +24,41 @@
     <!-- 顶部标题栏（左侧内嵌紧凑指标，避免悬浮卡片遮挡地球） -->
     <div class="hud top-header">
       <div class="header-stats">
-        <div class="hs-item"><b>{{ satList.length }}</b><span>在线卫星</span></div>
-        <div class="hs-item"><b>{{ runningTaskCount }}</b><span>正在执行</span></div>
-        <div class="hs-item"><b>{{ satisfaction }}<i class="hs-unit">%</i></b><span>任务满足率</span></div>
-        <div class="hs-item"><b>{{ planDuration }}<i class="hs-unit">s</i></b><span>规划耗时</span></div>
+        <div class="hs-item"><b><CountUp :value="satList.length" /></b><span>在线卫星</span></div>
+        <div class="hs-item"><b><CountUp :value="runningTaskCount" /></b><span>正在执行</span></div>
+        <div class="hs-item"><b><CountUp :value="satisfaction" suffix="%" /></b><span>任务满足率</span></div>
+        <div class="hs-item"><b><CountUp :value="planDuration" :decimals="1" suffix="s" /></b><span>规划耗时</span></div>
       </div>
       <div class="sys-title">
-        智能星簇协同运行验证系统
-        <span class="sub-title">卫星网络态势监控</span>
+        卫星网络态势监控
+        <span class="sub-title">SATELLITE NETWORK SITUATION</span>
       </div>
-      <div class="sim-time">仿真时间&nbsp;{{ simTime }}</div>
+      <div class="header-right">
+        <div class="sim-time">仿真时间&nbsp;{{ simTime }}</div>
+        <button class="fullscreen-btn" :title="isFullscreen ? '退出全屏' : '全屏展示'" @click="toggleFullscreen">
+          <svg v-if="!isFullscreen" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg>
+          <svg v-else viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5"/></svg>
+        </button>
+      </div>
     </div>
 
     <!-- 左侧卫星列表 -->
     <div class="hud left-panel">
       <i class="pc pc-tr"></i><i class="pc pc-bl"></i>
-      <div class="panel-title">实时卫星列表（{{ satList.length }}）</div>
+      <div class="panel-title">实时卫星列表（{{ filteredSats.length }}/{{ satList.length }}）</div>
+      <div class="sat-search">
+        <input v-model.trim="satSearch" class="sat-search-input" type="text" placeholder="搜索卫星名称 / 载荷类型…" />
+        <span v-if="satSearch" class="sat-search-clear" @click="satSearch = ''">×</span>
+      </div>
       <div class="sat-list">
-        <div v-for="sat in satList" :key="sat.id" class="sat-item" @click="focusSat(sat)">
+        <div v-for="sat in filteredSats" :key="sat.id" class="sat-item" @click="focusSat(sat)">
           <input type="checkbox" class="sat-check" :checked="isSatChecked(sat.name)"
                  @click.stop @change="toggleSatVisible(sat.name, $event.target.checked)" />
           <span class="sat-name">{{ sat.name }}</span>
           <span class="sat-payload">{{ sat.loadType }}</span>
-          <span class="sat-battery">{{ sat.battery }}Wh</span>
+          <span class="sat-battery" :class="satDotClass(sat)">{{ sat.battery }}Wh</span>
         </div>
-        <div v-if="satList.length === 0" class="empty-tip">暂无卫星数据，请先完成系统初始化</div>
+        <div v-if="filteredSats.length === 0" class="empty-tip">{{ satList.length === 0 ? '暂无卫星数据，请先完成系统初始化' : '未找到匹配的卫星' }}</div>
       </div>
       <div class="panel-title">任务执行进度（{{ taskList.length }}）</div>
       <div class="task-list">
@@ -67,6 +88,9 @@
         </div>
         <div class="detail-row"><span>通信链路</span>
           <label class="hud-switch"><input type="checkbox" :checked="globalLinkShow" @change="toggleAllLinks($event.target.checked)"><i></i></label>
+        </div>
+        <div class="detail-row"><span>地球自转展示</span>
+          <label class="hud-switch"><input type="checkbox" :checked="autoRotate" @change="toggleAutoRotate($event.target.checked)"><i></i></label>
         </div>
       </div>
     </div>
@@ -102,8 +126,11 @@
           <label class="hud-switch"><input type="checkbox" :checked="isFrustumShown(selectedSat.name)" @change="toggleFrustumShow(selectedSat.name, $event.target.checked)"><i></i></label>
         </div>
         <button class="hide-detail-btn" @click="closeDetail">隐藏</button>
+        <!-- 星下点轨迹小地图（仅选中卫星时显示） -->
+        <div class="panel-title subtrack-title">星下点轨迹</div>
+        <SubTrackMap :entity="selectedEntity" :viewer="viewerRef" :period-min="selectedPeriodMin" />
       </template>
-      <div v-else class="empty-tip">点击卫星或左侧列表查看详情</div>
+      <div v-else class="chart-empty detail-empty-static">点击卫星或左侧列表查看详情</div>
       <div class="panel-title">任务状态统计</div>
       <div ref="taskStatusChart" class="right-chart"></div>
       <div class="panel-title">任务满足率趋势</div>
@@ -129,11 +156,18 @@
 <script setup>
   import { onMounted, onUnmounted, ref, reactive, computed } from "vue";
   import * as Cesium from "cesium";
-  import * as echarts from "echarts";
+  import echarts from "@/utils/echarts.js";
   import { authFetch } from "@/utils/authFetch.js";
+  import Starfield from "@/components/Starfield.vue";
+  import CountUp from "@/components/CountUp.vue";
+  import SubTrackMap from "@/components/SubTrackMap.vue";
+
+  // 提亮加青色光晕的卫星图标（替换 CZML 内置的暗色 16px 图标）
+  const SAT_ICON_URI = "data:image/png;base64,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";
 
   // ===== 大屏 HUD 数据状态 =====
   const simTime = ref('--');
+  const czmlLoading = ref(true);  // 轨道数据加载中（首次生成需解算全部卫星轨道，耗时较长）
   const satList = ref([]);
   const runningTaskCount = ref(0);
   const satisfaction = ref('--');
@@ -144,6 +178,7 @@
   const eventList = ref([]);      // 底部实时事件滚动队列
   let viewerRef = null;        // Cesium viewer 引用
   let satDataSource = null;    // 卫星 CZML 数据源引用
+  const satDsReady = ref(0);   // satDataSource 赋值完成的响应式标志（computed 依赖用）
   let satEntities = [];        // 所有卫星 CZML 实体（供全局显隐开关遍历）
   let satGlowPoints = null;    // 卫星轨道拖尾光点 Map（key: 实体 id）
   let frustumPrims = null;     // 卫星视锥填充体 Map（key: 实体 id）
@@ -151,17 +186,69 @@
   let linkDataSource = null;   // 通信链路数据源（星间链路 + 星地数传链路）
   const linkTargetMap = {};    // 卫星链路连接表（key: satName → {gs, geo}），供链路 CallbackProperty 实时读取
   const hiddenFrustumId = ref(null);  // 当前被隐藏视锥的卫星实体 id（选中自动隐藏）
+  const focusMode = ref(false);       // 跟踪视角：隐藏全部视锥，避免近距离巨锥糊满屏幕
   const satCheckedMap = reactive({});  // 卫星勾选状态记忆（key: 卫星名，默认勾选）
   const satSwitchMap = reactive({});   // 每颗卫星的路径/视锥体开关记忆（key: 卫星名）
-  const globalPathShow = ref(true);    // 常用功能：全部轨迹开关
-  const globalFrustumShow = ref(true); // 常用功能：全部视锥体开关
-  const globalLinkShow = ref(true);    // 常用功能：通信链路开关
+  const globalPathShow = ref(false);   // 常用功能：全部轨迹开关（默认关：200 条拖尾全开会糊满屏幕）
+  const globalFrustumShow = ref(false); // 常用功能：全部视锥体开关（默认关：视锥全开遮挡地球）
+  const globalLinkShow = ref(false);   // 常用功能：通信链路开关（默认关：链路全开交织成网）
   const showEventBar = ref(true);      // 常用功能：实时事件栏开关
   const satInfoMap = ref({});          // getAllSatelliteInfo 结果（key: satName）
   let hudTimer = null;
   const prevTaskStatus = {};        // 任务状态快照，用于比对生成事件
   const lowBatteryWarned = new Set(); // 已报过低电量告警的卫星
   let lastSatisfaction = null;      // 上一次满足率，用于生成规划完成事件
+  const satSearch = ref('');        // 卫星列表搜索关键字（名称 / 载荷类型）
+  const isFullscreen = ref(false);  // 全屏展示状态
+  const autoRotate = ref(false);    // 地球自转展示开关（跟踪卫星时自动暂停）
+  let rotateHandler = null;         // Cesium postRender 自转回调引用
+
+  // 按关键字过滤卫星列表（匹配名称或载荷类型，不区分大小写）
+  const filteredSats = computed(() => {
+    const kw = satSearch.value.toLowerCase();
+    if (!kw) return satList.value;
+    return satList.value.filter(s =>
+      String(s.name).toLowerCase().includes(kw) ||
+      String(s.loadType || '').toLowerCase().includes(kw));
+  });
+
+  // 全屏展示切换（演示模式：浏览器级全屏）
+  function toggleFullscreen() {
+    if (document.fullscreenElement) {
+      document.exitFullscreen();
+    } else {
+      document.documentElement.requestFullscreen().catch(() => {});
+    }
+  }
+  function onFullscreenChange() {
+    isFullscreen.value = !!document.fullscreenElement;
+  }
+
+  // 地球自转展示：相机绕地轴缓慢旋转；用户选中卫星进入跟踪时自动暂停
+  function toggleAutoRotate(on) {
+    autoRotate.value = on;
+    if (!viewerRef) return;
+    if (on) {
+      rotateHandler = viewerRef.scene.postRender.addEventListener(() => {
+        // 跟踪视角下暂停自转，避免视角漂移
+        if (!focusMode.value) {
+          viewerRef.scene.camera.rotate(Cesium.Cartesian3.UNIT_Z, -Cesium.Math.toRadians(0.02));
+        }
+      });
+    } else if (rotateHandler) {
+      rotateHandler();
+      rotateHandler = null;
+    }
+  }
+
+  // Esc 快捷关闭详情面板并退出跟踪视角
+  function onKeydown(e) {
+    if (e.key === 'Escape' && selectedSat.value) closeDetail();
+  }
+  // 页面回到前台时补刷一次 HUD，避免数据滞后
+  function onVisibility() {
+    if (!document.hidden) refreshHud();
+  }
 
   // 面板数据轮询
   async function refreshHud() {
@@ -316,10 +403,22 @@
       },
       series: [{
         type: 'bar', barWidth: 16,
-        data: names.map(n => ({
-          value: counts[n],
-          itemStyle: { color: palette[n] || '#00dcff', borderRadius: [2, 2, 0, 0] }
-        }))
+        data: names.map(n => {
+          const c = palette[n] || '#00dcff';
+          return {
+            value: counts[n],
+            // 柱体纵向渐变 + 顶部发光，贴合 HUD 质感
+            itemStyle: {
+              color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+                { offset: 0, color: c },
+                { offset: 1, color: c + '33' }
+              ]),
+              borderRadius: [2, 2, 0, 0],
+              shadowColor: c + '88',
+              shadowBlur: 6
+            }
+          };
+        })
       }]
     });
   }
@@ -358,6 +457,21 @@
     selectedSat.value ? (satInfoMap.value[selectedSat.value.name] || null) : null
   );
 
+  // 当前选中卫星的 Cesium 实体（星下点小地图数据源）
+  const selectedEntity = computed(() => {
+    // 依赖 satDsReady：CZML 异步加载完成后触发重算
+    void satDsReady.value;
+    if (!selectedSat.value || !satDataSource) return null;
+    return satDataSource.entities.getById(`Satellite/${selectedSat.value.name}`) || null;
+  });
+  // 当前选中卫星的轨道周期（分钟，数值型；供小地图回溯采样）
+  const selectedPeriodMin = computed(() => {
+    const tle2 = selectedExtra.value && selectedExtra.value.tle2;
+    if (!tle2 || tle2.length < 63) return 95;
+    const mm = parseFloat(tle2.substring(52, 63));
+    return (isNaN(mm) || mm <= 0) ? 95 : 1440 / mm;
+  });
+
   // 由 TLE 第二行计算轨道周期（分钟）：周期 = 1440 / 平均运动（第 53-63 列，rev/day），解析失败显示 '-'
   function satPeriod(tle2) {
     if (!tle2 || tle2.length < 63) return '-';
@@ -370,6 +484,15 @@
   function fmtConn(v) {
     if (v === null || v === undefined || v === '') return '无';
     return Array.isArray(v) ? (v.length ? v.join('、') : '无') : String(v);
+  }
+
+  // 卫星列表状态呼吸灯：电量 <20 红色告警，<50 黄色关注，否则绿色在线
+  function satDotClass(sat) {
+    if (typeof sat.battery === 'number') {
+      if (sat.battery < 20) return 'dot-alarm';
+      if (sat.battery < 50) return 'dot-warn';
+    }
+    return 'dot-ok';
   }
 
   // 卫星勾选状态（默认勾选），轮询刷新列表时不重置
@@ -404,7 +527,7 @@
     }
     const glow = satGlowPoints && satGlowPoints.get(id);
     if (glow) glow.show = checked;
-    setFrustumVisible(id, checked && globalFrustumShow.value && sw.frustum && hiddenFrustumId.value !== id);
+    setFrustumVisible(id, checked && globalFrustumShow.value && sw.frustum && hiddenFrustumId.value !== id && !focusMode.value);
   }
 
   // 刷新所有卫星的场景显隐（全局开关切换 / CZML 加载完成后调用）
@@ -427,9 +550,10 @@
   // 详情面板开关：当前选中卫星的视锥显隐
   function toggleFrustumShow(name, show) {
     getSatSwitch(name).frustum = show;
-    // 用户手动打开时解除“选中自动隐藏”，让开关立即生效
+    // 用户手动打开时解除“选中自动隐藏”与跟踪隐藏，让开关立即生效
     const id = `Satellite/${name}`;
     if (show && hiddenFrustumId.value === id) hiddenFrustumId.value = null;
+    if (show && focusMode.value) { focusMode.value = false; applyAllVisibility(); return; }
     applySatVisibility(name);
   }
   // 常用功能：全部轨迹显示/隐藏
@@ -455,24 +579,24 @@
     return getSatSwitch(name).frustum && hiddenFrustumId.value !== `Satellite/${name}`;
   }
 
-  // 选中卫星时隐藏其视锥，避免跟踪视角下视锥糊满屏幕
+  // 选中卫星时进入跟踪视角：隐藏所有视锥（含其他卫星），避免巨锥糊满屏幕
   function onSelectSat(name) {
+    focusMode.value = true;
     if (hiddenFrustumId.value) {
-      const prevName = String(hiddenFrustumId.value).split('/')[1];
       hiddenFrustumId.value = null;
-      applySatVisibility(prevName);  // 恢复上一颗卫星的视锥显隐
     }
     hiddenFrustumId.value = `Satellite/${name}`;
-    applySatVisibility(name);
+    applyAllVisibility();  // 跟踪隐藏影响所有卫星的视锥，需整体刷新
   }
-  // 关闭详情：恢复视锥显示，相机飞回全球视角（页面无 homeButton，需手动复位）
+  // 关闭详情：退出跟踪视角、恢复视锥显示，相机飞回全球视角（页面无 homeButton，需手动复位）
   function closeDetail() {
+    focusMode.value = false;
     if (hiddenFrustumId.value) {
-      const prevName = String(hiddenFrustumId.value).split('/')[1];
       hiddenFrustumId.value = null;
-      applySatVisibility(prevName);
     }
     selectedSat.value = null;
+    applyAllVisibility();
+    // 飞回全球俯瞰视角（flyHome 已被上面的初始 setView 覆盖为全球视角）
     if (viewerRef) viewerRef.camera.flyHome(2);
   }
 
@@ -506,6 +630,10 @@
   onUnmounted(() => {
     if (hudTimer) { clearInterval(hudTimer); hudTimer = null; }
     window.removeEventListener('resize', handleResize);
+    window.removeEventListener('keydown', onKeydown);
+    document.removeEventListener('fullscreenchange', onFullscreenChange);
+    document.removeEventListener('visibilitychange', onVisibility);
+    if (rotateHandler) { rotateHandler(); rotateHandler = null; }
     if (payloadChartInst) { payloadChartInst.dispose(); payloadChartInst = null; }
     if (taskStatusChartInst) { taskStatusChartInst.dispose(); taskStatusChartInst = null; }
     if (satisfactionChartInst) { satisfactionChartInst.dispose(); satisfactionChartInst = null; }
@@ -532,10 +660,18 @@
     //   url:"https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer",
     //   enablePickFeatures:false
     // })
-    // 高德卫星影像图层（OSM 在国内不可达，改用高德瓦片）
+    // 底图：Esri 全球卫星影像。高德 style=6 瓦片在海洋/偏远区域 z8 起即返回
+    // “此区域无卫星图”占位图；Esri 全球覆盖至 z13，设 maximumLevel 后更高层级
+    // 自动拉伸低级瓦片，任何区域都不会出现占位文字。
     const esri = new Cesium.UrlTemplateImageryProvider({
-      url: 'https://webst0{s}.is.autonavi.com/appmaptile?style=6&x={x}&y={y}&z={z}',
-      subdomains: ['1', '2', '3', '4']
+      url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+      maximumLevel: 13
+    });
+    // 叠加高德中文路网/地名注记层（透明 PNG，仅标注，不遮挡影像）
+    const amapLabel = new Cesium.UrlTemplateImageryProvider({
+      url: 'https://webst0{s}.is.autonavi.com/appmaptile?style=8&x={x}&y={y}&z={z}',
+      subdomains: ['1', '2', '3', '4'],
+      maximumLevel: 13
     });
     // 创建 Cesium 视图
     let viewer = new Cesium.Viewer("cesiumContainer", {
@@ -570,15 +706,34 @@
     viewer.clock.shouldAnimate = true;
     viewer._cesiumWidget._creditContainer.style.display = "none"
     viewerRef = viewer;  // 供 HUD 面板使用
+    // 初始与"回家"视角：全球俯瞰（CZML 加载后默认会缩放到数据可用区间起点、
+    // 高度贴地导致底图瓦片加载不出显示灰块，这里显式设为全球视角并覆盖默认 HOME）
+    const HOME_DEST = Cesium.Cartesian3.fromDegrees(105, 12, 2.6e7);
+    viewer.camera.setView({ destination: HOME_DEST });
+    viewer.camera.flyHome(0);
+    viewer.scene.screenSpaceCameraController.enableCollisionDetection = false;
+    window.addEventListener('keydown', onKeydown);
+    document.addEventListener('fullscreenchange', onFullscreenChange);
     // 添加底图（构造函数传 imageryProvider 会加载失败显示蓝色球体，需在创建后通过 imageryLayers 添加）
     viewer.imageryLayers.removeAll();
     viewer.imageryLayers.addImageryProvider(esri);
+    const amapLabelLayer = viewer.imageryLayers.addImageryProvider(amapLabel);
+    // 注记层按相机高度分级显隐：全球视角（>1200万米）下中文地名密成一团且浪费瓦片请求，
+    // 仅在拉近到区域/城市级别时显示
+    const updateLabelVisibility = () => {
+      amapLabelLayer.show = viewer.camera.positionCartographic.height < 1.2e7;
+    };
+    viewer.camera.changed.addEventListener(updateLabelVisibility);
+    viewer.camera.percentageChanged = 0.01;  // 默认 0.5 节流阈值太大，小范围移动不触发
+    updateLabelVisibility();
     // // 把cesium的动画开关打开
     // viewer.clock.shouldAnimate = true;
     // window.viewer = viewer;
     // localStorage.setItem("viewer", viewer);
     // 加载 CZML 数据：优先使用后端根据当前 TLE 动态生成的数据，失败时回退本地静态文件
+    // 首次生成需解算全部卫星轨道，耗时较长，期间展示加载提示
     async function loadCzmlDataSource() {
+      czmlLoading.value = true;
       try {
         const res = await authFetch('/getCzml');
         if (res.ok) {
@@ -602,7 +757,9 @@
   
     // 在 CZML 数据加载完成后，为特定卫星添加扫描圆锥并绑定点击事件
     czmldata.then((dataSource) => {
+      czmlLoading.value = false;   // 轨道数据就绪，关闭加载提示
       satDataSource = dataSource;  // 供 HUD 面板使用
+      satDsReady.value++;          // 通知响应式依赖（selectedEntity 等）数据源就绪
       satGlowPoints = new Map();   // 轨道拖尾光点（key: 卫星实体 id）
   
       // 找到 ID 为 'Sat_1_1' 的卫星
@@ -660,9 +817,13 @@
                       if (!pos || !gsPos) return [Cesium.Cartesian3.ZERO, Cesium.Cartesian3.ZERO];
                       return [pos, gsPos];
                   }, false),
-                  width: 2,
+                  width: 1.5,
                   arcType: Cesium.ArcType.NONE,
-                  material: Cesium.Color.fromCssColorString('#00f0ff').withAlpha(0.8)
+                  // 短虚线 + 青色发光，区分星间长虚线，避免整屏实心线糊满
+                  material: new Cesium.PolylineDashMaterialProperty({
+                      color: Cesium.Color.fromCssColorString('#00f0ff').withAlpha(0.75),
+                      dashLength: 10
+                  })
               }
           });
       });
@@ -672,6 +833,13 @@
       satelliteEntities.forEach(entity => {
           if (entity.label) {
               entity.label.distanceDisplayCondition = new Cesium.DistanceDisplayCondition(0, 1.0e7);
+          }
+          // 卫星图标：换用提亮加青色光晕的版本（原版 16px 暗色图标在深色太空背景下几乎不可见），
+          // 远处适度缩小并配合拖尾光点，既清晰又不遮挡地球
+          if (entity.billboard) {
+              entity.billboard.image = SAT_ICON_URI;
+              entity.billboard.scale = 0.7;
+              entity.billboard.scaleByDistance = new Cesium.NearFarScalar(1.5e7, 1.0, 8.0e7, 0.7);
           }
           if (entity.path) {
               entity.path.width = 2;
@@ -699,7 +867,8 @@
                   color: Cesium.Color.fromCssColorString('#00f0ff'),
                   outlineColor: Cesium.Color.WHITE.withAlpha(0.8),
                   outlineWidth: 1,
-                  distanceDisplayCondition: new Cesium.DistanceDisplayCondition(0, 3.0e7)
+                  // 拖尾光点仅在相机拉近时显示（全球视角下 200 个光点会糊成杂乱光斑）
+                  distanceDisplayCondition: new Cesium.DistanceDisplayCondition(0, 1.2e7)
               }
           });
           satGlowPoints.set(entity.id, glowEntity);
@@ -746,7 +915,7 @@
           geometry: fillGeometry,
           attributes: {
             color: Cesium.ColorGeometryInstanceAttribute.fromColor(
-              new Cesium.Color(0.0, 0.8627, 1.0, 0.5098)
+              new Cesium.Color(0.0, 0.8627, 1.0, 0.32)  // 视锥填充降透明，减少遮挡压迫感
             ),
             // 远距离隐藏视锥体，减少视觉杂乱和离屏渲染
             distanceDisplayCondition: new Cesium.DistanceDisplayConditionGeometryInstanceAttribute(0, 1.5e7),
@@ -846,6 +1015,7 @@
         }
       }, Cesium.ScreenSpaceEventType.LEFT_CLICK);
     }).catch((error) => {
+      czmlLoading.value = false;  // 失败同样关闭加载提示，避免永久转圈
       console.error("加载 CZML 数据失败：", error);
     });
 
@@ -979,9 +1149,10 @@
     viewer.dataSources.add(Networking_for_GroundStation);
     Object.keys(Networking_Dicts).forEach(key => {Creat_Networks_for_GroundSations(key, Networking_Dicts[key])});
 
-    // 启动 HUD 数据轮询（5秒刷新一次）
+    // 启动 HUD 数据轮询（5秒刷新一次）；页面在后台标签时暂停，回前台立即补刷一次
     refreshHud();
-    hudTimer = setInterval(refreshHud, 5000);
+    hudTimer = setInterval(() => { if (!document.hidden) refreshHud(); }, 5000);
+    document.addEventListener('visibilitychange', onVisibility);
     // 窗口尺寸变化时重排 HUD 图表
     window.addEventListener('resize', handleResize);
     function Creat_Networks_for_GroundSations(src, dst_dicts){
@@ -991,8 +1162,8 @@
               positions: Cesium.Cartesian3.fromDegreesArray([Positions_of_GroundStations[src].lon, Positions_of_GroundStations[src].lat,
                 Positions_of_GroundStations[dst_dicts[key]].lon, Positions_of_GroundStations[dst_dicts[key]].lat,
                   ]),
-              width: 5, // 线宽
-              material: Cesium.Color.fromCssColorString('#FFFACD') // 线颜色 red , green , blue , alpha#FFFACD
+              width: 2, // 线宽
+              material: Cesium.Color.fromCssColorString('#ffd657').withAlpha(0.55) // 地面站骨干网，黄色低透明，与星间链路色系统一
           }
         });
       });
@@ -1042,6 +1213,45 @@
         border-top-color: rgba(0, 240, 255, 0.7);
         animation: hud-spin 18s linear infinite reverse;
     }
+    /* 轨道数据加载提示层 */
+    .czml-loading {
+        position: absolute;
+        left: 50%;
+        top: 50%;
+        transform: translate(-50%, -50%);
+        z-index: 30;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 12px;
+        padding: 26px 34px;
+        background: rgba(4, 14, 32, 0.82);
+        border: 1px solid rgba(0, 220, 255, 0.35);
+        border-radius: 10px;
+        box-shadow: 0 0 30px rgba(0, 220, 255, 0.15);
+        backdrop-filter: blur(8px);
+    }
+    .czml-loading-ring {
+        width: 38px;
+        height: 38px;
+        border-radius: 50%;
+        border: 2px solid rgba(0, 220, 255, 0.2);
+        border-top-color: #00f0ff;
+        animation: hud-spin 1s linear infinite;
+    }
+    .czml-loading-text {
+        font-size: 13px;
+        letter-spacing: 2px;
+        color: #cfeeff;
+    }
+    .czml-loading-sub {
+        font-size: 10px;
+        letter-spacing: 3px;
+        color: #4d7a9a;
+        font-family: 'Courier New', monospace;
+    }
+    .fade-enter-active, .fade-leave-active { transition: opacity 0.3s ease; }
+    .fade-enter-from, .fade-leave-to { opacity: 0; }
     @keyframes hud-spin {
         from { transform: rotate(0deg); }
         to { transform: rotate(360deg); }
@@ -1186,26 +1396,86 @@
         background-clip: text;
         -webkit-text-fill-color: transparent;
         filter: drop-shadow(0 0 8px rgba(0, 220, 255, 0.5));
+        /* 标题光泽缓慢扫过 */
+        background-size: 200% 100%;
+        animation: title-sheen-move 5s ease-in-out infinite;
+    }
+    @keyframes title-sheen-move {
+        0%, 100% { background-position: 0% 0; }
+        50% { background-position: 100% 0; }
     }
     .sub-title {
         margin-left: 12px;
-        font-size: 12px;
+        font-size: 10px;
         font-weight: 400;
-        letter-spacing: 1px;
-        background: linear-gradient(180deg, #bfefff, #00dcff);
-        -webkit-background-clip: text;
-        background-clip: text;
-        -webkit-text-fill-color: transparent;
+        letter-spacing: 2px;
+        color: rgba(0, 220, 255, 0.5);
     }
     .sim-time {
-        position: absolute;
-        right: 16px;
-        top: 50%;
-        transform: translateY(-50%);
         font-size: 13px;
         color: #7fd4ff;
         font-family: 'Courier New', monospace;
     }
+    .header-right {
+        position: absolute;
+        right: 16px;
+        top: 50%;
+        transform: translateY(-50%);
+        display: flex;
+        align-items: center;
+        gap: 10px;
+    }
+    /* 全屏展示按钮（演示模式） */
+    .fullscreen-btn {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 26px; height: 26px;
+        background: rgba(0, 220, 255, 0.08);
+        border: 1px solid rgba(0, 220, 255, 0.35);
+        border-radius: 4px;
+        color: #00dcff;
+        cursor: pointer;
+        transition: all 0.25s;
+    }
+    .fullscreen-btn:hover {
+        background: rgba(0, 220, 255, 0.2);
+        box-shadow: 0 0 10px rgba(0, 220, 255, 0.4);
+    }
+    /* 卫星列表搜索框 */
+    .sat-search {
+        position: relative;
+        margin: 0 10px 6px;
+    }
+    .sat-search-input {
+        width: 100%;
+        height: 26px;
+        padding: 0 22px 0 10px;
+        background: rgba(0, 220, 255, 0.05);
+        border: 1px solid rgba(0, 220, 255, 0.25);
+        border-radius: 4px;
+        color: #cfe8ff;
+        font-size: 11px;
+        outline: none;
+        transition: border-color 0.25s, box-shadow 0.25s;
+        box-sizing: border-box;
+    }
+    .sat-search-input::placeholder { color: rgba(159, 198, 232, 0.45); }
+    .sat-search-input:focus {
+        border-color: rgba(0, 220, 255, 0.6);
+        box-shadow: 0 0 8px rgba(0, 220, 255, 0.25);
+    }
+    .sat-search-clear {
+        position: absolute;
+        right: 7px;
+        top: 50%;
+        transform: translateY(-50%);
+        color: rgba(159, 198, 232, 0.6);
+        cursor: pointer;
+        font-size: 13px;
+        line-height: 1;
+    }
+    .sat-search-clear:hover { color: #00dcff; }
 
     /* 顶部指标（已内嵌进标题栏，原悬浮卡片样式移除） */
     .stat-value {
@@ -1258,14 +1528,37 @@
         background: rgba(0, 220, 255, 0.12);
         border-left-color: #00dcff;
     }
-    .sat-name { color: #e8f6ff; font-family: 'Courier New', monospace; flex: 1; }
-    .sat-payload { color: #ffd657; font-size: 11px; }
-    .sat-battery { color: #7fd4ff; font-size: 11px; font-family: 'Courier New', monospace; }
+    .sat-name { color: #e8f6ff; font-family: 'Courier New', monospace; flex: 1; min-width: 0; }
+    .sat-payload {
+        color: #ffd657; font-size: 10px;
+        padding: 0 5px; margin-right: 6px; flex-shrink: 0;
+        border: 1px solid rgba(255, 214, 87, 0.35); border-radius: 3px;
+        background: rgba(255, 214, 87, 0.08);
+    }
+    .sat-battery { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; font-family: 'Courier New', monospace; flex-shrink: 0; }
+    .sat-batt-dot { width: 5px; height: 5px; border-radius: 50%; background: currentColor; box-shadow: 0 0 5px currentColor; }
+    .sat-battery.dot-ok { color: #52ffa8; }
+    .sat-battery.dot-warn { color: #ffd657; }
+    .sat-battery.dot-alarm { color: #ff6b6b; }
     .empty-tip { padding: 20px 12px; font-size: 12px; color: #68809a; text-align: center; }
     .payload-chart { height: 150px; flex-shrink: 0; }
 
     /* 卫星列表勾选框 */
     .sat-check { accent-color: #00dcff; margin-right: 6px; flex-shrink: 0; cursor: pointer; }
+
+    /* 卫星状态呼吸灯：绿=在线，黄=低电量关注，红=告警 */
+    .sat-status-dot {
+        width: 6px; height: 6px; border-radius: 50%;
+        margin-right: 7px; flex-shrink: 0;
+        animation: sat-dot-breathe 2.4s ease-in-out infinite;
+    }
+    .sat-status-dot.dot-ok { background: #52ffa8; box-shadow: 0 0 6px rgba(82, 255, 168, 0.8); }
+    .sat-status-dot.dot-warn { background: #ffd657; box-shadow: 0 0 6px rgba(255, 214, 87, 0.8); }
+    .sat-status-dot.dot-alarm { background: #ff6b6b; box-shadow: 0 0 8px rgba(255, 107, 107, 0.9); animation-duration: 1.1s; }
+    @keyframes sat-dot-breathe {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0.35; }
+    }
 
     /* HUD 开关（详情面板/常用功能通用） */
     .hud-switch { position: relative; display: inline-block; width: 30px; height: 16px; flex-shrink: 0; }
@@ -1367,9 +1660,27 @@
         color: #68809a;
         border: 1px dashed rgba(0, 220, 255, 0.18);
         margin: 6px 10px;
+        flex-direction: column;
+        gap: 6px;
+    }
+    .chart-empty::before {
+        content: '';
+        width: 26px; height: 26px;
+        border: 1.5px solid rgba(0, 220, 255, 0.35); border-radius: 50%;
+        border-top-color: transparent; border-bottom-color: transparent;
+        box-shadow: 0 0 10px rgba(0, 220, 255, 0.2);
+    }
+    /* 卫星详情空态：flex 容器内静态布局（规则放在 .chart-empty 之后以覆盖 inset） */
+    .chart-empty.detail-empty-static {
+        position: relative;
+        inset: auto;
+        height: 120px;
+        flex-shrink: 0;
     }
     .close-btn { cursor: pointer; color: #68809a; font-size: 16px; }
     .close-btn:hover { color: #00dcff; }
+    /* 星下点小地图标题与上方内容拉开 */
+    .subtrack-title { margin-top: 6px; border-top: 1px solid rgba(0, 220, 255, 0.12); }
     .detail-name {
         padding: 10px 12px 4px;
         font-size: 15px;
@@ -1443,8 +1754,17 @@
         margin-right: 40px;
         font-family: 'Courier New', monospace;
     }
+    /* 事件级别前置小图标 */
+    .event-item::before {
+        content: '●';
+        margin-right: 5px;
+        font-size: 9px;
+        color: #00dcff;
+    }
     .event-item.warn { color: #ffd657; }
+    .event-item.warn::before { content: '▲'; color: #ffd657; }
     .event-item.alarm { color: #ff7a7a; }
+    .event-item.alarm::before { content: '✖'; color: #ff7a7a; animation: blink 1s ease-in-out infinite; }
     @keyframes marquee {
         0% { transform: translateX(100%); }
         100% { transform: translateX(-100%); }

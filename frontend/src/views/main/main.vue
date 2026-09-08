@@ -1,57 +1,89 @@
 <template>
   <el-container>
-    <el-aside :style="{ width: isCollapse ? 'fit-content' : '200px' }">
-      <div class="logo">智能星簇协同运行验证系统</div>
-      <el-menu router :collapse="isCollapse" :default-active="$route.path" active-text-color="#fff"
-        background-color="#011528" text-color="hsla(0,0%,100%,.65)" :collapse-transition="true">
+    <el-aside :style="{ width: isCollapse ? 'fit-content' : '224px' }" class="tech-aside">
+      <div class="logo" @click="$router.push('/satellite/satellite_network')">
+        <span class="logo-mark">
+          <svg viewBox="0 0 24 24" fill="none" width="18" height="18">
+            <path d="M12 2L14.5 9.5L22 12L14.5 14.5L12 22L9.5 14.5L2 12L9.5 9.5L12 2Z" fill="url(#asideLogoGrad)"/>
+            <defs>
+              <linearGradient id="asideLogoGrad" x1="2" y1="2" x2="22" y2="22">
+                <stop stop-color="#00f0ff"/>
+                <stop offset="1" stop-color="#7c4dff"/>
+              </linearGradient>
+            </defs>
+          </svg>
+        </span>
+        <transition name="fade">
+          <span v-if="!isCollapse" class="logo-text">智能星簇协同运行验证系统</span>
+        </transition>
+      </div>
+      <el-menu router :collapse="isCollapse" :default-active="$route.path" active-text-color="#eafcff"
+        background-color="transparent" text-color="rgba(160, 200, 235, 0.62)" :collapse-transition="true">
         <div v-if="isAdmin == 1">
-          <el-menu-item index="/satellite/satellite_network"><el-icon><House /></el-icon>卫星网络</el-menu-item>
-          <el-menu-item index="/satellite/system_settings"><el-icon><SetUp /></el-icon>系统设置</el-menu-item>
-          <el-menu-item index="/satellite/weixing"><el-icon><SetUp /></el-icon>卫星管理</el-menu-item>
+          <el-menu-item index="/satellite/satellite_network"><el-icon><Monitor /></el-icon><span>卫星网络</span></el-menu-item>
+          <el-menu-item index="/satellite/system_settings"><el-icon><SetUp /></el-icon><span>系统设置</span></el-menu-item>
+          <el-menu-item index="/satellite/weixing"><el-icon><Satellite /></el-icon><span>卫星管理</span></el-menu-item>
           <el-sub-menu index="/satellite/renwu">
             <template #title>
-              <el-icon><SetUp /></el-icon>
+              <el-icon><List /></el-icon>
               <span>任务管理</span>
             </template>
-            <el-menu-item index="/satellite/renwu/shuxing">任务属性</el-menu-item>
-            <el-menu-item index="/satellite/renwu/shezhi">任务设置</el-menu-item>
+            <el-menu-item index="/satellite/renwu/shuxing"><el-icon><Document /></el-icon><span>任务属性</span></el-menu-item>
+            <el-menu-item index="/satellite/renwu/shezhi"><el-icon><Operation /></el-icon><span>任务设置</span></el-menu-item>
           </el-sub-menu>
-          <el-menu-item index="/satellite/xingcu"><el-icon><SetUp /></el-icon>星簇管理</el-menu-item>
-          <el-menu-item index="/satellite/ground_station"><el-icon><Position /></el-icon>地面站</el-menu-item>
-          <el-menu-item index="/satellite/yongli"><el-icon><SetUp /></el-icon>示范用例</el-menu-item>
-          <el-menu-item index="/satellite/xingneng"><el-icon><SetUp /></el-icon>性能分析</el-menu-item>
+          <el-menu-item index="/satellite/xingcu"><el-icon><Connection /></el-icon><span>星簇管理</span></el-menu-item>
+          <el-menu-item index="/satellite/ground_station"><el-icon><Position /></el-icon><span>地面站</span></el-menu-item>
+          <el-menu-item index="/satellite/yongli"><el-icon><Aim /></el-icon><span>示范用例</span></el-menu-item>
+          <el-menu-item index="/satellite/xingneng"><el-icon><TrendCharts /></el-icon><span>性能分析</span></el-menu-item>
         </div>
         <!-- 非管理员账号暂无任何菜单项，给出明确提示而不是空白侧边栏 -->
         <div v-else class="menu-empty-tip">当前账号无可用功能模块，请联系管理员开通权限</div>
       </el-menu>
+      <div class="aside-footer" v-if="!isCollapse">
+        <span class="sys-dot"></span>SYSTEM ONLINE · V2.6
+      </div>
     </el-aside>
     <el-container>
-      <el-header>
-        <div style="cursor: pointer;height:100%;padding: 0 12px;display: flex;align-items: center;"
-          @click="isCollapse = !isCollapse">
-          <!-- <el-icon color="#909399" :size="24" v-if="isCollapse">
-            <Expand />
-          </el-icon>
-          <el-icon color="#909399" :size="24" v-else>
-            <Fold />
-          </el-icon> -->
-        </div>
-        <el-dropdown style="cursor: pointer;height:100%;display: flex;line-height: 60px;">
-          <div style="padding: 0 12px;display: flex;align-items: center;justify-content: center;">
-            <el-avatar :size="26" src="https://gw.alipayobjects.com/zos/antfincdn/XAosXuNZyF/BiazfanxmamNRoxxVxka.png" />
-            <span style="margin-left:10px;color:#7fd4ff;">{{ nickname }}</span>
+      <el-header class="tech-header">
+        <div class="header-left">
+          <div class="collapse-btn" @click="isCollapse = !isCollapse">
+            <el-icon :size="18">
+              <Expand v-if="isCollapse" />
+              <Fold v-else />
+            </el-icon>
           </div>
-          <template #dropdown>
-            <el-dropdown-menu>
-              <el-dropdown-item disabled>个人中心</el-dropdown-item>
-              <el-dropdown-item @click="openPwdDialog">个人设置</el-dropdown-item>
-              <el-dropdown-item divided @click="quitLogin">退出登录</el-dropdown-item>
-            </el-dropdown-menu>
-          </template>
-        </el-dropdown>
+          <div class="header-title">
+            <span class="header-page-name">{{ $route.meta.title || '卫星网络' }}</span>
+            <span class="header-breadcrumb">SATELLITE CLUSTER OPERATION CONSOLE</span>
+          </div>
+        </div>
+        <div class="header-right">
+          <div class="header-status">
+            <span class="sys-dot"></span>LINK NORMAL
+          </div>
+          <el-dropdown style="cursor: pointer;height:100%;display: flex;">
+            <div style="padding: 0 12px;display: flex;align-items: center;justify-content: center;">
+              <!-- 头像改为本地内联 SVG，去掉外部 CDN 依赖（内网/离线环境外链会破图） -->
+              <el-avatar :size="26" class="user-avatar">{{ avatarInitial }}</el-avatar>
+              <span style="margin-left:10px;color:#7fd4ff;">{{ nickname }}</span>
+            </div>
+            <template #dropdown>
+              <el-dropdown-menu>
+                <el-dropdown-item disabled>个人中心</el-dropdown-item>
+                <el-dropdown-item @click="openPwdDialog">个人设置</el-dropdown-item>
+                <el-dropdown-item divided @click="quitLogin">退出登录</el-dropdown-item>
+              </el-dropdown-menu>
+            </template>
+          </el-dropdown>
+        </div>
       </el-header>
       <el-main class="tech-main" :style="{ padding: $route.path === '/satellite/satellite_network' ? '0' : '20px' }">
-        <router-view />
+        <!-- 路由过渡：页面切换淡入上移，弱化生硬跳变 -->
+        <router-view v-slot="{ Component }">
+          <transition name="page-fade" mode="out-in">
+            <component :is="Component" />
+          </transition>
+        </router-view>
       </el-main>
     </el-container>
 
@@ -78,7 +110,19 @@
 </template>
 
 <script>
+import {
+  Monitor, SetUp, List, Connection, Position, Aim, TrendCharts, Expand, Fold,
+  Document, Operation
+} from '@element-plus/icons-vue';
+// 自定义卫星图标（组件库无内置卫星图标，与整体线框风格保持一致）
+// 提取为独立 SFC：项目构建的 Vue 为 runtime-only 版本，template 字符串无法运行时编译
+import Satellite from '@/components/SatelliteIcon.vue';
+
 export default {
+  components: {
+    Monitor, SetUp, List, Connection, Position, Aim, TrendCharts, Expand, Fold,
+    Document, Operation, Satellite
+  },
   data() {
     return {
       isCollapse: false,
@@ -91,6 +135,12 @@ export default {
         password: "",
         confirmPassword: "",
       },
+    }
+  },
+  computed: {
+    // 头像取昵称首字符（无昵称时退化为默认字母）
+    avatarInitial() {
+      return (this.nickname || 'U').trim().charAt(0).toUpperCase() || 'U';
     }
   },
   created() {
@@ -118,10 +168,12 @@ export default {
       this.pwdSubmitting = true;
       try {
         await this.$request.post('/updatePassword', { username, password, confirmPassword });
-        this.$message.success('密码修改成功');
         this.pwdDialogVisible = false;
-        this.pwdForm.password = "";
-        this.pwdForm.confirmPassword = "";
+        // 后端改密成功后会吊销该用户全部 token，当前会话已失效，必须强制重新登录，
+        // 否则用户停留在系统内、下一次请求才被 401 弹走，体验割裂
+        this.$message.success('密码修改成功，请重新登录');
+        localStorage.clear();
+        this.$router.push('/login');
       } catch (err) {
         // 失败信息（含后端 400 的 meta.message）由 request.js 响应拦截器统一弹出
       } finally {
@@ -142,50 +194,289 @@ export default {
   height: 100vh;
 }
 
-.el-aside {
-  color: #fff;
+/* ---------- 侧边栏：深空渐变 + 玻璃拟态 ---------- */
+.el-aside.tech-aside {
+  color: #cfe8ff;
   z-index: 10;
-  background-color: #011528;
-  box-shadow: 2px 0 6px rgba(0, 21, 41, 0.35);
+  position: relative;
+  background: linear-gradient(180deg, #04101f 0%, #020a16 60%, #02070f 100%);
+  border-right: 1px solid rgba(0, 220, 255, 0.14);
+  box-shadow: 4px 0 18px rgba(0, 8, 24, 0.55);
+  display: flex;
+  flex-direction: column;
+}
+/* 侧栏顶部青色氛围光 */
+.el-aside.tech-aside::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 180px;
+  background: radial-gradient(ellipse at 50% -20%, rgba(0, 220, 255, 0.14), transparent 70%);
+  pointer-events: none;
 }
 
-.el-header {
+.logo {
+  height: 60px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 10px;
+  cursor: pointer;
+  border-bottom: 1px solid rgba(0, 220, 255, 0.16);
+  background: linear-gradient(90deg, rgba(0, 220, 255, 0.1), transparent 75%);
+  flex-shrink: 0;
+  overflow: hidden;
+}
+
+.logo-mark {
+  width: 30px;
+  height: 30px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  background: rgba(0, 220, 255, 0.1);
+  border: 1px solid rgba(0, 220, 255, 0.35);
+  box-shadow: 0 0 10px rgba(0, 220, 255, 0.35);
+}
+
+.logo-text {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0;
+  white-space: nowrap;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  background: linear-gradient(180deg, #ffffff, #7fd4ff);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  filter: drop-shadow(0 0 6px rgba(0, 220, 255, 0.35));
+}
+
+.fade-enter-active,
+.fade-leave-active {
+  transition: opacity 0.25s;
+}
+.fade-enter-from,
+.fade-leave-to {
+  opacity: 0;
+}
+
+.el-menu {
+  border: none;
+  flex: 1;
+  padding: 8px;
+  background: transparent;
+}
+
+.el-menu-item,
+:deep(.el-sub-menu__title) {
+  height: 42px;
+  line-height: 42px;
+  margin: 4px 0;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  color: rgba(160, 200, 235, 0.62);
+  background-color: transparent;
+  transition: all 0.22s ease;
+}
+
+.el-menu-item .el-icon,
+:deep(.el-sub-menu__title) .el-icon {
+  color: inherit;
+}
+
+.el-menu-item:hover,
+:deep(.el-sub-menu__title):hover {
+  color: #00f0ff !important;
+  background: rgba(0, 220, 255, 0.08) !important;
+}
+
+/* 当前选中菜单项：青色渐变光带 + 左侧发光指示条 */
+.el-menu-item.is-active {
+  position: relative;
+  color: #eafcff !important;
+  font-weight: 600;
+  background: linear-gradient(90deg, rgba(0, 220, 255, 0.24), rgba(0, 220, 255, 0.05)) !important;
+  border: 1px solid rgba(0, 220, 255, 0.4);
+  box-shadow: 0 0 14px rgba(0, 220, 255, 0.22);
+}
+.el-menu-item.is-active::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 3px;
+  height: 20px;
+  border-radius: 2px;
+  background: #00f0ff;
+  box-shadow: 0 0 8px rgba(0, 240, 255, 0.9);
+}
+
+/* 子菜单面板 */
+:deep(.el-menu--inline) {
+  background: rgba(2, 10, 22, 0.6);
+  border-radius: 6px;
+}
+:deep(.el-menu--inline .el-menu-item) {
+  min-width: auto;
+  padding-left: 20px !important;
+}
+
+.menu-empty-tip {
+  padding: 20px 14px;
+  font-size: 12px;
+  line-height: 1.8;
+  color: #68809a;
+}
+
+/* 侧栏底部系统状态装饰 */
+.aside-footer {
+  flex-shrink: 0;
+  padding: 12px 18px;
+  font-size: 11px;
+  letter-spacing: 2px;
+  color: #4d657f;
+  border-top: 1px solid rgba(0, 220, 255, 0.1);
+  font-family: 'Courier New', monospace;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.sys-dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #52ffa8;
+  box-shadow: 0 0 8px rgba(82, 255, 168, 0.8);
+  animation: dot-pulse 2s ease-in-out infinite;
+}
+
+/* 首字符头像：与顶栏青色 HUD 风格一致 */
+.user-avatar {
+  background: linear-gradient(135deg, rgba(0, 220, 255, 0.35), rgba(124, 77, 255, 0.35));
+  border: 1px solid rgba(0, 220, 255, 0.45);
+  color: #d8f6ff;
+  font-size: 13px;
+  font-weight: 600;
+  box-shadow: 0 0 8px rgba(0, 220, 255, 0.3);
+}
+@keyframes dot-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+
+/* ---------- 顶栏：渐变 + 底部发光线 ---------- */
+.el-header.tech-header {
   line-height: 60px;
   padding: 0 10px;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  background: linear-gradient(90deg, #061224, #0a1e3d);
-  border-bottom: 1px solid rgba(0, 220, 255, 0.25);
+  background: linear-gradient(90deg, #04101f, #071a33 55%, #04101f);
+  border-bottom: 1px solid rgba(0, 220, 255, 0.22);
   z-index: 9;
-  box-shadow: 0 1px 4px rgba(0, 21, 41, 0.35);
+  box-shadow: 0 2px 14px rgba(0, 8, 24, 0.5);
+}
+
+.header-left {
+  height: 100%;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.collapse-btn {
+  cursor: pointer;
+  height: 34px;
+  width: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  color: #9fc6e8;
+  border: 1px solid transparent;
+  transition: all 0.2s;
+}
+.collapse-btn:hover {
+  color: #00f0ff;
+  background: rgba(0, 220, 255, 0.1);
+  border-color: rgba(0, 220, 255, 0.3);
+}
+
+.header-title {
+  margin-left: 10px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 3px;
+  line-height: 1.3;
+}
+.header-page-name {
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: 2px;
+  color: #e8f6ff;
+}
+.header-breadcrumb {
+  font-size: 10px;
+  letter-spacing: 2px;
+  color: #4d657f;
+  font-family: 'Courier New', monospace;
+  transform: scale(0.92);
+  transform-origin: left center;
+}
+
+.header-right {
+  height: 100%;
+  display: flex;
+  align-items: center;
+}
+
+.header-status {
+  margin-right: 14px;
+  padding: 4px 12px;
+  font-size: 11px;
+  letter-spacing: 1.5px;
+  font-family: 'Courier New', monospace;
+  color: #8ee0c0;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  border: 1px solid rgba(82, 255, 168, 0.25);
+  border-radius: 20px;
+  background: rgba(82, 255, 168, 0.06);
 }
 
 .el-main {
-  background-color: #0b1530;
+  background:
+    radial-gradient(1200px 500px at 85% -10%, rgba(0, 140, 220, 0.08), transparent 60%),
+    radial-gradient(900px 420px at 5% 110%, rgba(80, 60, 200, 0.07), transparent 60%),
+    #0b1530;
   position: relative;
 }
 
-.el-menu {
-  border: none;
+/* 路由切换过渡：旧页淡出 + 新页淡入上移 */
+.page-fade-enter-active {
+  transition: opacity 0.28s ease, transform 0.28s ease;
 }
-
-.el-menu-item.is-active {
-  background-color: #00a0c6 !important;
+.page-fade-leave-active {
+  transition: opacity 0.16s ease;
 }
-
-.el-menu-item {
-  background-color: #000b16;
+.page-fade-enter-from {
+  opacity: 0;
+  transform: translateY(8px);
 }
-
-.el-menu-item:hover {
-  color: #fff !important;
-}
-
-.logo {
-  height: 60px;
-  line-height: 60px;
-  text-align: center;
-  /* margin-left: 20px; */
+.page-fade-leave-to {
+  opacity: 0;
 }
 </style>

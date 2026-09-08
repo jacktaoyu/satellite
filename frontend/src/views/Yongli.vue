@@ -4,7 +4,7 @@
     <el-card shadow="never" class="header-card">
       <div class="header-content">
         <div class="header-title">
-          <el-icon :size="24" color="#409EFF"><Document /></el-icon>
+          <el-icon :size="24" color="#00dcff"><Document /></el-icon>
           <div>
             <h2 class="title">示范用例</h2>
             <p class="subtitle">执行典型任务场景，验证系统能力</p>
@@ -121,7 +121,7 @@
       <template #header>
         <div class="result-header">
           <div class="result-title">
-            <el-icon :size="18" color="#67C23A"><CircleCheckFilled /></el-icon>
+            <el-icon :size="18" color="#8ee06a"><CircleCheckFilled /></el-icon>
             <span>用例执行结果</span>
           </div>
           <el-button link :icon="Close" @click="executionResult = null">关闭</el-button>
@@ -214,7 +214,7 @@
       <template #header>
         <div class="history-header">
           <div class="history-title">
-            <el-icon :size="18" color="#909399"><Timer /></el-icon>
+            <el-icon :size="18" color="#9fc6e8"><Timer /></el-icon>
             <span>执行历史</span>
           </div>
           <el-button link type="danger" :icon="Delete" @click="clearHistory">清空历史</el-button>
@@ -440,9 +440,15 @@ export default {
         sceneMode: Cesium.SceneMode.SCENE2D  // 2D 平面示意更直观
       });
       this._caseViewer.imageryLayers.removeAll();
+      // 底图：Esri 全球卫星影像（全球覆盖无占位图）+ 高德中文注记叠加层
       this._caseViewer.imageryLayers.addImageryProvider(new Cesium.UrlTemplateImageryProvider({
-        url: 'https://webst0{s}.is.autonavi.com/appmaptile?style=6&x={x}&y={y}&z={z}',
-        subdomains: ['1', '2', '3', '4']
+        url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+        maximumLevel: 13
+      }));
+      this._caseViewer.imageryLayers.addImageryProvider(new Cesium.UrlTemplateImageryProvider({
+        url: 'https://webst0{s}.is.autonavi.com/appmaptile?style=8&x={x}&y={y}&z={z}',
+        subdomains: ['1', '2', '3', '4'],
+        maximumLevel: 13
       }));
       this._caseViewer._cesiumWidget._creditContainer.style.display = 'none';
       const positions = [];

@@ -3051,3 +3051,150 @@ ctx.fillRect(-108, -22, 72, 44); ctx.fillRect(36, -22, 72, 44) // 太阳翼
 
 1. **正常路径**：`py_compile` 通过；library/ 文件存在时重启后端（PID 44925）→ 日志显示"检测到已存在的初始化文件，直接复用"×3 → 立即通过 TLE/卫星参数等待 → "初始化所有卫星的轨迹完成" → 主循环运行，全程无需手动上传 ✅。
 2. **边界场景**：删除 library/TLE.txt 后重启 → 日志打印"初始化文件缺失，等待用户上传"，系统设置页上传后正常初始化（原等待逻辑不变）。
+
+---
+
+## 2026-09-06 界面科技感统一优化（前端）
+
+【修改】frontend/src/views/main/main.vue：重设计后台主框架。侧边栏改为深空渐变玻璃拟态，菜单项增加专属图标（卫星网络/系统设置/卫星管理/任务管理/星簇管理/地面站/示范用例/性能分析），选中态改为青色渐变光带+左侧发光指示条；logo 增加渐变星形图标与发光标题；侧栏底部新增 SYSTEM ONLINE 状态装饰。顶栏增加折叠按钮、当前页面名+英文副标、LINK NORMAL 链路状态灯。主区域背景改为径向渐变深空氛围。
+
+【修改】frontend/src/App.vue：全局底色由浅灰 #f5f5f5 改为深空 #030812（避免路由切换闪白），全局滚动条改为青色科技风。
+
+【修改】frontend/src/styles/dark-tech.css：追加科技感增强规则——el-card 增加 HUD 切角（左上/右下青色光点）与悬停发光；el-empty 空状态插画通过 CSS 变量压暗融入深色面板；el-loading/el-message/el-notification/遮罩层统一深色 HUD 化；el-timeline 配色适配；页面内容淡入过渡动画。
+
+【修改】frontend/src/views/Xingneng.vue：移除头部卡片浅色渐变残留，meta-item 文字改浅色，图标硬编码主题蓝（#409EFF 等）统一替换为科技青色系。
+
+【修改】frontend/src/views/weixing/Weixing_info.vue、Yongli.vue、SystemSettings.vue、Renwu/Shezhi.vue：图标硬编码浅色（#409EFF/#67C23A/#E6A23C/#F56C6C/#909399/#606266/#303133）统一替换为深色科技风配色（#00dcff/#8ee06a/#f0b95c/#f58f8f/#9fc6e8/#e8f6ff）。
+
+测试步骤：
+1. `cd frontend && npm install && npm run build` 构建通过（已验证 ✓ built）。
+2. `npm run dev` 启动后逐页访问 /satellite 下各页面：侧边栏/顶栏为统一深色科技风，菜单选中项有发光光带；表格/卡片带 HUD 切角；空状态插画为深色；无浅色残留（已用浏览器截图逐页回归验证）。
+3. 边界场景：el-empty（任务/用例无数据时）、el-dialog 弹窗、el-message 提示均为深色 HUD 风格，不再出现白底。
+
+---
+
+## 2026-09-06 界面科技感增强 v2（前端）
+
+【修改】`frontend/src/components/Starfield.vue`【新增】通用星空粒子背景组件（Canvas 绘制：星星闪烁漂移 + 偶发流星），供卫星网络页/登录页等复用，参数化密度与透明度。
+【修改】`frontend/src/components/CountUp.vue`【新增】数字滚动组件，数值变化时从旧值平滑滚动到新值（easeOut 缓动），非数值占位符（'--'）直接透传。
+【修改】`frontend/src/views/Satellite_network.vue`【卫星网络大屏升级】接入 Starfield 星空背景（地球之外的深空区域透出）；顶栏四项指标改用 CountUp 数字滚动；卫星列表新增电量状态呼吸灯（绿/黄/红三档）；任务状态统计柱图改纵向渐变 + 发光，满足率趋势折线改面积渐变 + 节点光晕。
+【修改】`frontend/src/views/login/Login.vue`【登录页炫酷化】接入 Starfield 星空层；地球外围新增双层轨道装饰环（外环带绕行发光卫星光点、内外环反向旋转）；标语区底部新增三枚能力标签（呼吸灯圆点）；窄屏隐藏轨道环避免错位。
+【修改】`frontend/src/views/login/LoginCard.vue`【登录卡片】新增卡片边缘旋转光束边框（conic-gradient 光带循环扫过）；品牌 logo 光环呼吸脉动。
+【修改】`frontend/src/views/portal/Portal.vue`【门户页】Hero 区元素阶梯入场（badge → 标题 → 描述 → 按钮依次淡入上移，各延迟 0.12s）。
+【修改】`frontend/src/views/Xingneng.vue`【图表 HUD 化】性能分析页全部折线图统一发光线条 + 节点光晕 + 面积纵向渐变；任务执行统计柱图改纵向渐变 + 发光；雷达图三算法分别着色 + 半透明填充 + 描边发光。
+【修改】`frontend/src/views/main/main.vue`【路由过渡】router-view 改用 `<transition name="page-fade" mode="out-in">`（旧页淡出 + 新页淡入上移），替代原 dark-tech.css 中对 `.tech-main > *` 的全量入场动画（该方案在容器内数据更新时也会误触发）。
+【修改】`frontend/src/styles/dark-tech.css`【空状态/过渡】移除 `.tech-main > *` 入场动画规则（改由 main.vue 路由过渡接管）；el-empty 默认浅色插画替换为暗色卫星 SVG（浮动动画 + 光环底座呼吸），所有管理页空状态统一。
+
+测试：`npm run build` 构建通过；本地全栈（Flask:5001 + Vite:5173）起服后 Playwright 截图回归：/login（地球 + 轨道环 + 光束卡片 ✓）、/portal（阶梯入场 ✓）、/satellite/satellite_network（星空透出 + 呼吸灯 + CountUp 占位 '--' ✓）、/satellite/xingneng（渐变发光图表 + 卫星空状态 ✓）、/satellite/renwu/shuxing（发光统计数字 ✓）。
+
+---
+
+## 2026-09-06 界面科技感增强 v3（前端细节打磨）
+
+【修改】`frontend/src/views/main/main.vue`【Logo 截断修复】logo-text 字号 14px→13px、字距 1px→0.5px，224px 侧栏下"智能星簇协同运行验证系统"完整显示不再省略。
+【修改】`frontend/src/views/Satellite_network.vue`【细节增强】卫星列表电量数字随电量档位变色（与状态灯一致：绿/黄/红）；任务进度条新增流光扫过动画（::after 高光带 2.2s 循环）；底部事件栏按级别显示前置图标（● 普通 / ▲ 警告 / ✖ 告警闪烁）；中央大标题新增光泽缓慢扫过动画。
+【修改】`frontend/src/styles/dark-tech.css`【卡片层次感】el-card 卡头/卡体上沿新增青色高亮渐变线，提升 HUD 面板层次。
+
+测试：`npm run build` 通过；Playwright 截图回归 /satellite/satellite_network（Logo 完整显示、事件图标 ✓）与 /satellite/renwu/shuxing（卡片高亮线 ✓）。
+
+## 2026-09-06 界面科技感增强 v4（骨架屏 / 星下点小地图 / 构建分包）
+
+【新增】`frontend/src/components/SubTrackMap.vue`【星下点轨迹小地图】卫星详情面板新增 Canvas 星下点轨迹图：经纬网格 + 完整一圈轨道轨迹（90 采样点、跨日界线分段、尾段渐亮）+ 当前位置脉冲光点；位置经 `getValueInReferenceFrame(FIXED)` 统一转地固系，采样窗口对齐 CZML 可用区间（仿真起始时自动向前采样）。
+【新增】`frontend/src/components/SatelliteIcon.vue`【组件提取】main.vue 侧栏卫星图标由内联 template 字符串提取为独立 SFC，消除 runtime-only 构建下 "runtime compilation is not supported" 警告。
+【修改】`frontend/src/views/Renwu/Shuxing.vue`、`Xingcu.vue`、`weixing/Weixing.vue` + `frontend/src/styles/dark-tech.css`【骨架屏】表格加载态由 v-loading 遮罩替换为深色 HUD 风格 el-skeleton 骨架屏（青色流动渐变），减少加载跳变感。
+【修改】`frontend/vite.config.js`【构建分包】新增 manualChunks：vendor-vue / vendor-element / vendor-echarts 三个长效缓存 chunk，入口 index.js 由约 1MB 降至 58KB（gzip 23KB），首屏只需加载入口 + 当前路由 chunk。
+【修改】`frontend/src/views/Satellite_network.vue`【接线】引入 SubTrackMap（selectedEntity / selectedPeriodMin 计算属性，周期由 TLE 平均运动推算，缺省 95min）。
+
+测试：`npm run build` 通过（分包体积已验证）；Playwright 截图回归：卫星详情星下点轨迹正确渲染正弦轨道（首点经度 69.665° 与详情面板 69.67° 一致、控制台零报错）；任务属性/星簇/卫星管理页骨架屏加载态正常。
+
+## 2026-09-06 布局协调性检查与修复（全页面走查）
+
+【修改】`frontend/src/views/NetworkParameters.vue`【配色统一】按载荷批量设置页从旧蓝色系（#1e5a96/#7cc3ff）整体迁移到青色 HUD 色系（#00dcff 家族 + #030812/#0b1530 背景），与全站面板一致；载荷类型图标由 emoji（📸📡🌡️）替换为 Element Plus 矢量图标（Camera/Dish/Sunny），消除风格割裂；标题加字距与青色辉光。
+【修改】`frontend/src/views/Xingcu.vue`【表格列换行】星簇名称列 150px→175px 并加 show-overflow-tooltip，长名称不再单词中间断行，超出省略号 + 悬浮提示。
+【修改】`frontend/src/views/login/LoginCard.vue`【英文副标题折行】brand-sub 字号 10px→9px、字距 3px→1.5px 且不换行，"SATELLITE CLUSTER COLLABORATIVE PLATFORM" 单行显示不再孤立折出 "PLATFORM"。
+
+测试：`npm run build` 通过；Playwright 截图回归 /satellite/network_parameters（青色面板 + 矢量图标 ✓）、/satellite/Xingcu（名称列省略号 ✓）、/login（副标题单行 ✓），控制台零报错。
+
+## 2026-09-06 修复“返回首页被弹回登录页”
+
+【修改】`frontend/src/utils/request.js`【401 跳转逻辑】axios 全局 401 处理不再无条件 Router.push('/login')：当当前路由为公开页面（/portal、/login、/register）时仅静默清除本地登录态，不强制跳转。根因：token 过期后点击“返回首页”，门户页拉取 /statistics 返回 401，拦截器把用户从公开门户页又弹回登录页。
+
+测试：`npm run build` 通过；Playwright 复现过期 token 场景（localStorage 写入无效 token → 登录页点“返回首页”），修复前跳回 /login，修复后稳定停留 /portal 且页面正常渲染。
+
+## 2026-09-06 卫星网络大屏高分辨率走查优化
+
+【修改】`frontend/src/views/main/main.vue`【侧栏 Logo】logo-text 13px→12px、去字距，高分屏下"智能星簇协同运行验证系统"完整显示。
+【修改】`frontend/src/views/Satellite_network.vue`【多处】① 中央大标题改为页面名"卫星网络态势监控"+ 英文副标 SATELLITE NETWORK SITUATION（系统名由顶栏承载，不再两处重复）；② 卫星列表载荷类型改为黄色描边徽标、电量数字按电量档位着色（绿/黄/红）并加状态光点，不再挤作一团；③ 任务状态统计柱图顶部加数值标签；④ 卫星详情空态与趋势图空态统一为轨道环 + 虚线框样式（修复空态 inset 拉伸覆盖柱图的布局缺陷）。
+
+测试：`npm run build` 通过；Playwright 以 3584×1834 高分辨率截图回归卫星网络页（Logo 完整、列表徽标/电量分色 ✓、空态与图表互不遮挡 ✓），控制台零报错。
+
+## 2026-09-06 3D 地球视觉优化
+
+【修改】`frontend/src/views/Satellite_network.vue`【地球观感】① 卫星 billboard 增加 scaleByDistance 距离缩放（近 1.0 → 远 0.55）+ 轻微距离半透明，修复 Cesium 反向透视导致的"远处图标放大糊满地球"问题，全球视角下地球恢复干净、LEO 卫星仍可辨认；② 底图 brightness 0.88 / contrast 1.08 / saturation 0.95，压暗提对比突出发光轨道线；③ 大气 hueShift -0.06 / brightnessShift 0.1，晨昏线青色光晕更贴合 HUD 氛围。
+
+测试：`npm run build` 通过；Playwright 截图对比全球视角地球区域（修改前卫星图标覆盖地球表面，修改后地球干净、卫星分布层次清晰），控制台零报错。
+
+## 2026-09-06 卫星图标与拖尾光点优化（回退幽灵缩放方案）
+
+【修改】`frontend/src/views/Satellite_network.vue`【卫星视觉】回退此前"远距离缩小+半透明"方案（远处图标变幽灵残影效果差），改为：① 用提亮加青色光晕的 48px 新图标（SAT_ICON_URI）替换 CZML 内置暗色 16px 图标，billboard scale 0.7 + 距离缩放近 1.0→远 0.7，全球视角下每颗卫星清晰可辨、大小适中；② 轨道拖尾光点显示距离 3.0e7→1.2e7，全球视角下不再出现 200 个杂乱蓝点光斑，拉近后拖尾特效保留。
+
+测试：`npm run build` 通过；Playwright 截图对比全球视角（新图标清晰、蓝点收敛、地球干净），控制台零报错。
+
+## 2026-09-06 通信链路与全局元素显示优化
+
+【修改】`frontend/src/views/Satellite_network.vue`【链路/视锥/轨迹】① 三项全局开关（全部轨迹/全部视锥体/通信链路）默认关闭——200 条拖尾线+视锥+链路全开会糊满地球，现默认干净视图，用户按需手动开启（选中卫星时其路径/视锥仍单独显示）；② 星地数传链路由粗实线改为 1.5px 短虚线（青色 0.75 透明），与星间长虚线区分；③ 地面站覆盖球体半径 300km→150km、透明度降低，不再遮挡地表；④ 地面站骨干网线 5px 浅黄改为 2px 黄色低透明，与整体色系统一。
+
+测试：`npm run build` 通过；Playwright 截图验证默认干净视图与单开链路视图（东亚区域链路清晰不糊屏），控制台零报错。
+
+## 2026-09-07 跟踪视角视锥遮挡修复
+- 选中/跟踪卫星时隐藏所有卫星的扫描视锥（此前仅隐藏被选中星，其他星的巨锥在近距离下糊满屏幕）；关闭详情或手动打开视锥开关时恢复。视锥填充透明度 0.51→0.32 减轻压迫感。
+- 测试：Playwright 复现跟踪场景截图验证（跟踪视角无视锥、无控制台报错），`npm run build` 通过。
+
+## 2026-09-07 全站复查优化
+- 注册页整体重写为与登录页一致的暗色玻璃拟态风格（深空渐变背景、品牌区、渐变标题、深色输入框、渐变主按钮），替换旧的白色卡片+风景图背景；新增"返回首页"入口。
+- 任务属性页两个 el-table 由固定 height="500" 改为 max-height="500"，数据少时卡片不再留出大片空白，分页紧随表格。
+- 测试：Playwright 截图验证注册页/任务属性页无控制台报错，`npm run build` 通过；其余页面（门户/登录/卫星网络/卫星/星簇/地面站/任务设置/网络参数/性能分析/示范用例/系统设置/卫星详情）复查无视觉问题。
+
+## 2026-09 展示效果与实用功能增强（Satellite_network.vue / Portal.vue）
+- 卫星网络页新增：卫星列表搜索框（按名称/载荷类型过滤，显示 n/总数）、顶栏全屏展示按钮、Esc 快捷关闭卫星详情并退出跟踪视角、常用功能新增"地球自转展示"开关（相机绕地轴缓转，跟踪卫星时自动暂停）。
+- 门户页新增核心功能模块快捷入口卡片（组网态势/任务规划/星簇管理/效能评估，悬停发光+底部扫描线，点击走进入系统流程）。
+- 测试：Playwright 截图验证搜索过滤 200→20、Esc 关闭详情、自转开关、全屏按钮均正常，控制台无报错；npm run build 通过。
+
+## 2026-09 门户页功能卡片遮挡地球修复（Portal.vue）
+- 功能入口卡片区宽度由 min(880px, 92vw) 收窄为 min(720px, 46vw, 92vw)，限制在左半文字区内，不再遮挡右侧地球；卡片内容相应紧凑化。
+- 测试：Playwright 在 2560×1300 与 1920×1080 两种分辨率截图确认无遮挡，控制台无报错；npm run build 通过。
+
+## 2026-09 卫星网络页关闭详情后相机贴地灰块修复（Satellite_network.vue）
+- 问题：选中卫星后关闭详情，flyHome 飞回的是 CZML 数据可用区间起点的贴地默认视角，底图瓦片在该高度加载不出，显示大片灰色占位。修复：初始化时显式 setView 全球俯瞰视角（105°E, 12°N, 高 2.6e7m）并 flyHome(0) 覆盖默认 HOME 位置，关闭详情后即飞回清晰全球视角。
+- 测试：Playwright 复现"选中 Sat_10_0 → Esc 关闭"场景，相机正常飞回全球视角、底图完整、控制台无报错；npm run build 通过。
+
+## 2026-09-07 底图换源：消除“此区域无卫星图”占位图
+- 高德 style=6 瓦片在海洋/偏远区域 z8 起即返回占位图，属于免费瓦片覆盖限制；现将四个页面（卫星网络、门户、登录、示范用例）底图统一替换为 Esri World Imagery（全球覆盖至 z13，设 maximumLevel 后超高层级自动拉伸低级瓦片，不再出现占位文字），卫星网络页与示范用例页额外叠加高德 style=8 中文路网/地名透明注记层。
+- 测试：npm run build 通过；Playwright 实测全球视角、太平洋近距离放大（z12+）、中国区域放大均正常渲染、中文注记叠加生效、无任何占位文字，四个页面控制台零报错。
+
+## 2026-09-07 工程深度审查与问题修复
+- 顶栏头像去掉 alipay 外部 CDN 依赖，改为本地首字符头像（内网/离线不再破图）；修改密码成功后强制清理登录态跳回登录页（后端改密即吊销 token，原先用户停留在失效会话中）；登录按账号类型分流，普通用户直接回门户页，不再先闯控制台被守卫弹“无权限”警告；系统设置页上传地址由硬编码 host:5001 改为统一 API_BASE（支持 VITE_API_BASE 部署覆盖）。
+- 后端 /initFiles、/networkParametersList 增加运控中心未初始化判空（返回 503 而非 500）；UserModel 注释与实际 user_type 取值对齐。
+- 测试：npm run build 通过；Playwright 回归 13 个页面零报错；实测非管理员登录分流至门户、改密后旧 token 立即 401、新密码可正常登录。
+
+## 2026-09-07 性能与工程优化批次
+- 图标按需注册（原全量注册近 300 个 Element Plus 图标，现仅注册实际用到的 35 个）；ECharts 改按需装配（仅注册饼图/柱状/折线/雷达+常用组件，vendor-echarts 由 1037KB 降至 581KB，gzip 343→195KB）。
+- 三个页面的 5 秒轮询（任务列表、性能页仿真时间、网络页 HUD）在后台标签页自动暂停，回前台立即补刷一次，减少无效请求。
+- 网络页新增轨道数据加载提示层（"正在解算卫星轨道数据…"），CZML 首次生成耗时期间不再面对空白地球。
+- authFetch 的 401 处理与 request.js 统一：清理全部 localStorage key，且公开页面（门户/登录/注册）仅静默清理不强制跳转。
+- 后端建表判断由 MySQL 方言 SHOW TABLES 改为 SQLAlchemy inspect，SQLite 等其它数据库不再报语法错误。
+- 测试：npm run build 通过；Playwright 全 13 页面回归零报错；SQLite 环境下建表日志正常（"已存在，跳过创建"）。
+
+## 2026-09-07 token 持久化与注记层分级显隐
+- 登录 token 由内存字典改为落库（新表 t_auth_token），后端重启后在线用户不再全员掉线；签发/校验/吊销语义与 401 前端处理完全兼容。
+- 卫星网络页高德中文注记层按相机高度分级显隐：全球视角（>1200万米）隐藏，拉近到区域级别自动显示，减少瓦片请求与视觉噪声。
+- 测试：npm run build 通过；Playwright 13 页面回归零报错；实测重启后端后旧 token 访问仍 200；全球/拉近两视角截图确认注记层显隐正确。
+
+## 2026-09-09 系统设置页对接后端模式/约束接口（补齐说明书交互要求）
+- 系统模式切换与调度方案选择原先仅写 localStorage、刷新即丢且不通知后端；现改为读取 GET /getAutoRun、/getModel 初始化，切换时调用 POST /changeAutoRun、/changeModel（方案映射：任务满足率=1/资源利用率=2/成像质量=3，自主模式=0），失败自动回滚。
+- 新增“星簇约束配置”卡片：对接 GET/POST /constraintConfig，支持时间约束（min）/能源约束（Wh）/固存约束（GB）三项的启停与阈值自定义管理，补齐技术说明书“不少于3种星簇级约束项自定义管理”指标。
+- 测试：npm run build 通过；changeAutoRun/changeModel/constraintConfig 写入-回读闭环验证通过；Playwright 13 页面回归零报错、零失败请求。
+
+## 2026-09-09 修复无客户端时任务规划永远不启动的问题
+- 卫星网络线程原先在 _start_socket_server 中永久阻塞等待 NODES 个客户端连接，无客户端时主循环进不去、is_trace 恒为 False，任务规划完全不启动；改为非阻塞 accept（1s 超时），每轮主循环调用 _try_accept_client 尝试接入，无客户端时规划/仿真照常运行，客户端可随时接入。
+- 测试：无客户端状态下提交任务，规划正常完成（调度 1/1，评分正常）；随后启动 2 个模拟客户端被正常接收（所有客户端已连接）；python 语法检查通过。

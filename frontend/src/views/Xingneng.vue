@@ -4,7 +4,7 @@
     <el-card shadow="never" class="header-card">
       <div class="header-content">
         <div class="header-title">
-          <el-icon :size="24" color="#409EFF"><TrendCharts /></el-icon>
+          <el-icon :size="24" color="#00dcff"><TrendCharts /></el-icon>
           <div>
             <h2 class="title">性能分析</h2>
             <p class="subtitle">任务规划算法评估与系统性能监控</p>
@@ -122,7 +122,7 @@
           <template #header>
             <div class="card-header">
               <div class="header-title">
-                <el-icon :size="18" color="#409EFF"><TrendCharts /></el-icon>
+                <el-icon :size="18" color="#00dcff"><TrendCharts /></el-icon>
                 <span>多算法性能对比</span>
               </div>
             </div>
@@ -155,7 +155,7 @@
               <template #header>
                 <div class="chart-header">
                   <div class="chart-title">
-                    <el-icon :size="18" color="#409EFF"><PieChart /></el-icon>
+                    <el-icon :size="18" color="#00dcff"><PieChart /></el-icon>
                     <span>算法评估指标</span>
                   </div>
                   <el-radio-group v-model="selectedAlgorithm" size="small" @change="onAlgorithmChange">
@@ -173,7 +173,7 @@
               <template #header>
                 <div class="chart-header">
                   <div class="chart-title">
-                    <el-icon :size="18" color="#67C23A"><Histogram /></el-icon>
+                    <el-icon :size="18" color="#8ee06a"><Histogram /></el-icon>
                     <span>任务执行统计</span>
                   </div>
                 </div>
@@ -188,7 +188,7 @@
           <template #header>
             <div class="card-header">
               <div class="header-title">
-                <el-icon :size="18" color="#909399"><Document /></el-icon>
+                <el-icon :size="18" color="#9fc6e8"><Document /></el-icon>
                 <span>详细评估数据</span>
               </div>
               <el-button link :icon="Refresh" @click="loadEvaluationData">刷新</el-button>
@@ -233,7 +233,7 @@
 
 <script>
 import { ElMessage } from 'element-plus';
-import * as echarts from 'echarts';
+import echarts from '@/utils/echarts.js';
 import {
   TrendCharts, Refresh, Download, CircleCheck, Cpu, Timer, DataAnalysis,
   PieChart, Histogram, Document
@@ -297,19 +297,35 @@ export default {
   mounted() {
     this.loadData();
     this.loadClusterOptions();
-    // 轮询仿真时间，保持与卫星网络页一致的时间锚点
-    this.simTimer = setInterval(this.loadSimTime, 5000);
+    // 轮询仿真时间，保持与卫星网络页一致的时间锚点；
+    // 页面切到后台标签时暂停轮询（document.hidden），回前台立即补刷一次，减少无效请求
+    this.startSimTimer();
+    document.addEventListener('visibilitychange', this.handleVisibility);
     window.addEventListener('resize', this.handleResize);
   },
   beforeUnmount() {
+    document.removeEventListener('visibilitychange', this.handleVisibility);
     window.removeEventListener('resize', this.handleResize);
-    if (this.simTimer) {
-      clearInterval(this.simTimer);
-      this.simTimer = null;
-    }
+    this.stopSimTimer();
     this.disposeCharts();
   },
   methods: {
+    startSimTimer() {
+      if (this.simTimer) return;
+      this.simTimer = setInterval(() => {
+        if (!document.hidden) this.loadSimTime();
+      }, 5000);
+    },
+    stopSimTimer() {
+      if (this.simTimer) {
+        clearInterval(this.simTimer);
+        this.simTimer = null;
+      }
+    },
+    handleVisibility() {
+      // 回到前台时补刷一次，避免时间显示滞后
+      if (!document.hidden) this.loadSimTime();
+    },
     // 惰性获取图表实例：隐藏 tab 中的图表在首次可见时才初始化，避免 0 尺寸问题
     getChartInst(refName) {
       if (!chartInsts[refName] && this.$refs[refName]) {
@@ -539,8 +555,16 @@ export default {
           type: 'line',
           smooth: true,
           data: s.data,
-          lineStyle: { color: s.color },
-          itemStyle: { color: s.color }
+          // 发光线条 + 节点光晕，统一 HUD 质感
+          lineStyle: { color: s.color, width: 2, shadowColor: s.color, shadowBlur: 8 },
+          itemStyle: { color: s.color, shadowColor: s.color, shadowBlur: 5 },
+          // 面积纵向渐变：上实下虚
+          areaStyle: {
+            color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+              { offset: 0, color: s.color + '3d' },
+              { offset: 1, color: s.color + '05' }
+            ])
+          }
         }))
       };
       inst.setOption(option, true);
@@ -633,16 +657,23 @@ export default {
           },
           series: [{
             type: 'radar',
-            data: this.evaluationData.map(item => ({
-              // 响应速度：规划耗时按 0~60s 线性映射为 100~0 分（耗时越短得分越高，超 60s 计 0 分）
-              value: [
-                item.completionRate,
-                item.resourceUtilization,
-                item.imagingQuality,
-                Math.max(0, Math.min(100, Math.round(100 - Number(item.executionTime) / 60 * 100)))
-              ],
-              name: item.algorithm
-            }))
+            // 雷达填充渐变发光：算法色半透明填充 + 描边发光
+            data: this.evaluationData.map((item, idx) => {
+              const c = ['#00dcff', '#8ee06a', '#ffd657'][idx % 3];
+              return {
+                // 响应速度：规划耗时按 0~60s 线性映射为 100~0 分（耗时越短得分越高，超 60s 计 0 分）
+                value: [
+                  item.completionRate,
+                  item.resourceUtilization,
+                  item.imagingQuality,
+                  Math.max(0, Math.min(100, Math.round(100 - Number(item.executionTime) / 60 * 100)))
+                ],
+                name: item.algorithm,
+                lineStyle: { color: c, width: 2, shadowColor: c, shadowBlur: 6 },
+                itemStyle: { color: c },
+                areaStyle: { color: c + '26' }
+              };
+            })
           }]
         };
         radarChartInst.setOption(radarOption, true);
@@ -670,13 +701,23 @@ export default {
             splitLine: { lineStyle: { color: 'rgba(0, 220, 255, 0.12)' } }
           },
           series: [{
-            data: this.evaluationData.map(item => ({
-              value: item.completionRate,
-              itemStyle: {
-                color: item.algorithm === '贪心算法' ? '#00c8f0' :
-                       item.algorithm === '蚁群算法' ? '#67C23A' : '#E6A23C'
-              }
-            })),
+            data: this.evaluationData.map(item => {
+              const c = item.algorithm === '贪心算法' ? '#00c8f0' :
+                        item.algorithm === '蚁群算法' ? '#67C23A' : '#E6A23C';
+              return {
+                value: item.completionRate,
+                // 柱体纵向渐变 + 发光
+                itemStyle: {
+                  color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+                    { offset: 0, color: c },
+                    { offset: 1, color: c + '3d' }
+                  ]),
+                  borderRadius: [3, 3, 0, 0],
+                  shadowColor: c + '88',
+                  shadowBlur: 8
+                }
+              };
+            }),
             type: 'bar',
             barWidth: '40%'
           }]
@@ -763,7 +804,7 @@ export default {
 /* 头部卡片 */
 .header-card {
   margin-bottom: 20px;
-  background: linear-gradient(135deg, #f5f7fa 0%, #e4e7ed 100%);
+  /* 深色 HUD 渐变由 dark-tech.css 的 .header-card 规则统一覆盖 */
 }
 
 .header-content {
@@ -813,7 +854,7 @@ export default {
 
 .meta-item {
   font-size: 14px;
-  color: #606266;
+  color: #9fc6e8;
 }
 
 .meta-item b {
