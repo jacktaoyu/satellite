@@ -1037,7 +1037,12 @@ class Satellite:
         try:
             # 首先尝试使用skyfield库计算
             from skyfield.api import EarthSatellite, load
-            from skyfield.earthlib import earthradius_km
+            try:
+                from skyfield.earthlib import earthradius_km  # skyfield<=1.49
+            except ImportError:
+                from skyfield.earthlib import earth_radius_au as _era  # skyfield>=1.50 改名
+                from skyfield.units import Distance as _Dist
+                earthradius_km = _Dist(au=_era).km
 
             # 创建卫星对象
             satellite = EarthSatellite(self.tle_line1, self.tle_line2)

@@ -3198,3 +3198,7 @@ ctx.fillRect(-108, -22, 72, 44); ctx.fillRect(36, -22, 72, 44) // 太阳翼
 ## 2026-09-09 修复无客户端时任务规划永远不启动的问题
 - 卫星网络线程原先在 _start_socket_server 中永久阻塞等待 NODES 个客户端连接，无客户端时主循环进不去、is_trace 恒为 False，任务规划完全不启动；改为非阻塞 accept（1s 超时），每轮主循环调用 _try_accept_client 尝试接入，无客户端时规划/仿真照常运行，客户端可随时接入。
 - 测试：无客户端状态下提交任务，规划正常完成（调度 1/1，评分正常）；随后启动 2 个模拟客户端被正常接收（所有客户端已连接）；python 语法检查通过。
+
+## 2026-09-09 修复 skyfield 1.53 兼容性导致的轨道高度计算告警刷屏
+- skyfield>=1.50 移除了 skyfield.earthlib.earthradius_km 常量，SatelliteService 与 task_scheduling 两处轨道高度计算每次都抛 ImportError 并走 sgp4 回退，日志被告警刷屏；改为 try/except 双版本导入（新版用 earth_radius_au 换算，6378.137km 数值一致），计算结果不变但不再产生告警。
+- 测试：修复后用真实 TLE 直接调用返回 536.8km 正常；重启后端全程零 skyfield 告警；npm run build 通过。
