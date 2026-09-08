@@ -145,6 +145,36 @@
             </div>
           </el-card>
 
+          <!-- 星簇级约束项配置（时间/能源/固存，后端规划装配处统一生效） -->
+          <el-card shadow="never" class="setting-card" v-loading="constraintsLoading">
+            <template #header>
+              <div class="card-header-inner">
+                <el-icon :size="16" color="#00dcff"><SetUp /></el-icon>
+                <span class="card-title">星簇约束配置</span>
+                <el-button size="small" type="primary" plain :loading="constraintsSaving"
+                  :disabled="!constraints.length" @click="saveConstraints" style="margin-left: auto;">保存约束</el-button>
+              </div>
+            </template>
+            <div class="card-body compact">
+              <div v-for="c in constraints" :key="c.key" class="constraint-row">
+                <div class="constraint-main">
+                  <div class="constraint-head">
+                    <span class="constraint-name">{{ c.name }}</span>
+                    <el-switch v-model="c.enabled" size="small" />
+                  </div>
+                  <div class="constraint-desc">{{ c.desc }}</div>
+                </div>
+                <div class="constraint-threshold">
+                  <el-input-number v-model="c.threshold" :min="0" :disabled="!c.enabled"
+                    size="small" :controls="false" style="width: 90px;" />
+                  <span class="constraint-unit">{{ c.unit }}</span>
+                </div>
+              </div>
+              <el-empty v-if="!constraintsLoading && !constraints.length" description="约束配置不可用"
+                :image-size="40" />
+            </div>
+          </el-card>
+
           <!-- TLE 文件上传 -->
           <el-card shadow="never" class="setting-card upload-mini-card">
             <template #header>
@@ -418,14 +448,14 @@ import { ElMessage } from 'element-plus';
 import { API_BASE } from '@/utils/config.js';
 import {
   Setting, Clock, Switch, Check, Close, RefreshRight,
-  Upload, UploadFilled, InfoFilled, Document, Delete, Edit, Refresh, Download, Plus
+  Upload, UploadFilled, InfoFilled, Document, Delete, Edit, Refresh, Download, Plus, SetUp
 } from '@element-plus/icons-vue';
 
 export default {
   name: 'SystemSettings',
   components: {
     Setting, Clock, Switch, Check, Close, RefreshRight,
-    Upload, UploadFilled, InfoFilled, Document, Delete, Edit, Refresh, Download, Plus
+    Upload, UploadFilled, InfoFilled, Document, Delete, Edit, Refresh, Download, Plus, SetUp
   },
   data() {
     const defaultTime = [
@@ -454,6 +484,13 @@ export default {
         { value: 'utilization', label: '资源利用率最大' },
         { value: 'imaging', label: '成像质量最高' }
       ],
+      // 方案与后端 changeModel 的整型映射（0 最优综合 / 1 任务满足率 / 2 资源利用率 / 3 成像质量）
+      planModelMap: { completion: 1, utilization: 2, imaging: 3 },
+      modelPlanMap: { 1: 'completion', 2: 'utilization', 3: 'imaging' },
+      // 星簇级约束项配置（说明书硬性指标：不少于3种，后端 constraintConfig 已在规划装配处生效）
+      constraints: [],
+      constraintsLoading: false,
+      constraintsSaving: false,
       satFile: null,
       satFileReady: false,
       satFields: [
@@ -549,6 +586,54 @@ export default {
       if (this.submitStatus.sat) {
         this.loadSatelliteList();
       }
+      // 运行模式与调度方案以后端真实状态为准（说明书 3.7.6：模式切换需实时生效于运控中心）
+      this.fetchRunMode();
+      this.fetchConstraints();
+    },
+    async fetchRunMode() {
+      try {
+        const [autoRes, modelRes] = await Promise.all([
+          this.$request.get('/getAutoRun'),
+          this.$request.get('/getModel')
+        ]);
+        if (typeof autoRes.data?.auto === 'boolean') {
+          this.form.auto_mode = autoRes.data.auto;
+        }
+        const model = modelRes.data?.mode;
+        // 手动模式（1-3）时回显对应方案；0（综合最优）为自动模式，不回改方案选择
+        if (this.modelPlanMap[model]) {
+          this.selectedPlan = this.modelPlanMap[model];
+        }
+      } catch (err) {
+        // 后端不可达时保留 localStorage 中的本地偏好作为兜底显示
+        console.error('获取运行模式失败:', err);
+      }
+    },
+    async fetchConstraints() {
+      this.constraintsLoading = true;
+      try {
+        const res = await this.$request.get('/constraintConfig');
+        this.constraints = Array.isArray(res.data?.constraints) ? res.data.constraints : [];
+      } catch (err) {
+        console.error('获取约束配置失败:', err);
+      } finally {
+        this.constraintsLoading = false;
+      }
+    },
+    async saveConstraints() {
+      if (!this.constraints.length) return;
+      this.constraintsSaving = true;
+      try {
+        await this.$request.post('/constraintConfig', {
+          constraints: this.constraints.map(c => ({ key: c.key, enabled: c.enabled, threshold: c.threshold }))
+        });
+        ElMessage.success('约束配置已保存，将在下一批次任务规划中生效');
+      } catch (err) {
+        // 失败提示由 request.js 拦截器统一弹出；回读后端状态避免界面与实际不一致
+        this.fetchConstraints();
+      } finally {
+        this.constraintsSaving = false;
+      }
     },
     restorePreferences() {
       const savedMode = localStorage.getItem('system_auto_mode');
@@ -617,15 +702,35 @@ export default {
       const pad = (n) => (n < 10 ? '0' + n : n);
       return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
     },
-    changeMode(val) {
-      localStorage.setItem('system_auto_mode', String(val));
-      ElMessage.success(`已切换为${val ? '自动' : '手动'}模式`);
+    async changeMode(val) {
+      // 同步后端运控中心运行模式（auto_run），失败时回滚开关，避免界面与实际不一致
+      try {
+        await this.$request.post('/changeAutoRun', { auto: val });
+        if (val) {
+          // 自动模式对应后端综合最优方案（model=0）
+          await this.$request.post('/changeModel', 0, { headers: { 'Content-Type': 'application/json' } });
+        } else {
+          // 切手动时把当前选择的方案一并下发
+          await this.$request.post('/changeModel', this.planModelMap[this.selectedPlan] ?? 1, { headers: { 'Content-Type': 'application/json' } });
+        }
+        localStorage.setItem('system_auto_mode', String(val));
+        ElMessage.success(`已切换为${val ? '自动' : '手动'}模式`);
+      } catch (err) {
+        this.form.auto_mode = !val;
+      }
     },
-    onPlanChange(plan) {
-      localStorage.setItem('system_selected_plan', plan);
-      const currentPlan = this.planOptions.find(item => item.value === plan);
-      if (currentPlan) {
-        ElMessage.success(`已切换调度方案: ${currentPlan.label}`);
+    async onPlanChange(plan) {
+      // 方案选择实时下发后端 changeModel（仅在手动模式下有实际意义，自动模式后端固定综合最优）
+      const model = this.planModelMap[plan] ?? 1;
+      try {
+        await this.$request.post('/changeModel', model, { headers: { 'Content-Type': 'application/json' } });
+        localStorage.setItem('system_selected_plan', plan);
+        const currentPlan = this.planOptions.find(item => item.value === plan);
+        if (currentPlan) {
+          ElMessage.success(`已切换调度方案: ${currentPlan.label}`);
+        }
+      } catch (err) {
+        this.fetchRunMode();  // 失败时回读后端真实方案，保持界面与实际一致
       }
     },
     beforeTleUpload(file) {
@@ -1519,4 +1624,28 @@ export default {
     align-self: flex-end;
   }
 }
+
+/* 星簇约束配置行 */
+.constraint-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 10px 12px;
+  margin-bottom: 8px;
+  border: 1px solid rgba(0, 220, 255, 0.16);
+  border-radius: 6px;
+  background: rgba(0, 220, 255, 0.03);
+}
+.constraint-row:last-child { margin-bottom: 0; }
+.constraint-main { flex: 1; min-width: 0; }
+.constraint-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.constraint-name { font-size: 13px; color: #d9ecff; font-weight: 600; }
+.constraint-desc { font-size: 11px; color: #68809a; margin-top: 3px; }
+.constraint-threshold { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+.constraint-unit { font-size: 12px; color: #7fa8c9; min-width: 28px; }
 </style>

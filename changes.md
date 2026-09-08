@@ -3189,3 +3189,8 @@ ctx.fillRect(-108, -22, 72, 44); ctx.fillRect(36, -22, 72, 44) // 太阳翼
 - 登录 token 由内存字典改为落库（新表 t_auth_token），后端重启后在线用户不再全员掉线；签发/校验/吊销语义与 401 前端处理完全兼容。
 - 卫星网络页高德中文注记层按相机高度分级显隐：全球视角（>1200万米）隐藏，拉近到区域级别自动显示，减少瓦片请求与视觉噪声。
 - 测试：npm run build 通过；Playwright 13 页面回归零报错；实测重启后端后旧 token 访问仍 200；全球/拉近两视角截图确认注记层显隐正确。
+
+## 2026-09-09 系统设置页对接后端模式/约束接口（补齐说明书交互要求）
+- 系统模式切换与调度方案选择原先仅写 localStorage、刷新即丢且不通知后端；现改为读取 GET /getAutoRun、/getModel 初始化，切换时调用 POST /changeAutoRun、/changeModel（方案映射：任务满足率=1/资源利用率=2/成像质量=3，自主模式=0），失败自动回滚。
+- 新增“星簇约束配置”卡片：对接 GET/POST /constraintConfig，支持时间约束（min）/能源约束（Wh）/固存约束（GB）三项的启停与阈值自定义管理，补齐技术说明书“不少于3种星簇级约束项自定义管理”指标。
+- 测试：npm run build 通过；changeAutoRun/changeModel/constraintConfig 写入-回读闭环验证通过；Playwright 13 页面回归零报错、零失败请求。
