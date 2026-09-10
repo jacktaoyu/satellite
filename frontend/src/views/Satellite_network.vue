@@ -158,6 +158,7 @@
   import * as Cesium from "cesium";
   import echarts from "@/utils/echarts.js";
   import { authFetch } from "@/utils/authFetch.js";
+  import { utcToLocalString } from "@/utils/time.js";
   import Starfield from "@/components/Starfield.vue";
   import CountUp from "@/components/CountUp.vue";
   import SubTrackMap from "@/components/SubTrackMap.vue";
@@ -255,7 +256,8 @@
     try {
       const r = await authFetch('/getCurrentTime');
       const d = await r.json();
-      simTime.value = (d.current_time || '--').slice(0, 19);
+      // 后端返回 UTC，转本地时区显示（与系统设置页提交的本地时间一致）
+      simTime.value = utcToLocalString(d.current_time);
     } catch (e) { /* 后端未就绪时静默 */ }
     try {
       const r = await authFetch('/satellites/getAllSatellites', {

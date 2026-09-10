@@ -234,6 +234,7 @@
 <script>
 import { ElMessage } from 'element-plus';
 import echarts from '@/utils/echarts.js';
+import { utcToLocalString } from '@/utils/time.js';
 import {
   TrendCharts, Refresh, Download, CircleCheck, Cpu, Timer, DataAnalysis,
   PieChart, Histogram, Document
@@ -399,8 +400,8 @@ export default {
     async loadSimTime() {
       try {
         const res = await this.$request.get('/getCurrentTime');
-        const t = res.data?.current_time;
-        this.simTime = t ? String(t).slice(0, 19) : '--';
+        // 后端返回 UTC，转本地时区显示（与系统设置页提交的本地时间一致）
+        this.simTime = utcToLocalString(res.data?.current_time);
       } catch (err) {
         /* 后端未就绪时静默 */
       }

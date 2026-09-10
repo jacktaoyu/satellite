@@ -3202,3 +3202,7 @@ ctx.fillRect(-108, -22, 72, 44); ctx.fillRect(36, -22, 72, 44) // 太阳翼
 ## 2026-09-09 修复 skyfield 1.53 兼容性导致的轨道高度计算告警刷屏
 - skyfield>=1.50 移除了 skyfield.earthlib.earthradius_km 常量，SatelliteService 与 task_scheduling 两处轨道高度计算每次都抛 ImportError 并走 sgp4 回退，日志被告警刷屏；改为 try/except 双版本导入（新版用 earth_radius_au 换算，6378.137km 数值一致），计算结果不变但不再产生告警。
 - 测试：修复后用真实 TLE 直接调用返回 536.8km 正常；重启后端全程零 skyfield 告警；npm run build 通过。
+
+## 2026-09-10 修复仿真时间显示与设置值差 8 小时的问题
+- 系统设置页提交的本地时间在入口被转成 UTC 存储，但卫星网络页/性能分析页显示时直接把 UTC 字符串原样输出，用户设 6 月 6 日却看到 6 月 5 日 16 点；新增 utils/time.js 的 utcToLocalString，两处显示统一 UTC→本地时区转换，设置与显示一致，内部规划时间轴（UTC）不受影响。
+- 测试：npm run build 通过；Playwright 模拟东八区/UTC 浏览器分别提交 6月6日06:00，两页显示均与设置值一致，无页面异常。
