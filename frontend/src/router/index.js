@@ -113,6 +113,12 @@ const router = createRouter({
           meta: { title: "按载荷批量设置" },
           component: () => import("@/views/NetworkParameters.vue"),
         },
+        {
+          path: "alerts",
+          name: "alerts",
+          meta: { title: "告警中心" },
+          component: () => import("@/views/AlertCenter.vue"),
+        },
         
       ],
     },
