@@ -1,6 +1,6 @@
 <template>
   <el-container>
-    <el-aside :style="{ width: isCollapse ? 'fit-content' : '224px' }" class="tech-aside">
+    <el-aside :style="{ width: isCollapse ? 'fit-content' : '224px' }" class="tech-aside" :class="{ 'mobile-collapsed': isCollapse }">
       <div class="logo" @click="$router.push('/satellite/satellite_network')">
         <span class="logo-mark">
           <svg viewBox="0 0 24 24" fill="none" width="18" height="18">
@@ -35,6 +35,7 @@
           <el-menu-item index="/satellite/ground_station"><el-icon><Position /></el-icon><span>地面站</span></el-menu-item>
           <el-menu-item index="/satellite/yongli"><el-icon><Aim /></el-icon><span>示范用例</span></el-menu-item>
           <el-menu-item index="/satellite/xingneng"><el-icon><TrendCharts /></el-icon><span>性能分析</span></el-menu-item>
+          <el-menu-item index="/satellite/alerts"><el-icon><BellFilled /></el-icon><span>告警中心</span></el-menu-item>
         </div>
         <!-- 非管理员账号暂无任何菜单项，给出明确提示而不是空白侧边栏 -->
         <div v-else class="menu-empty-tip">当前账号无可用功能模块，请联系管理员开通权限</div>
@@ -112,7 +113,7 @@
 <script>
 import {
   Monitor, SetUp, List, Connection, Position, Aim, TrendCharts, Expand, Fold,
-  Document, Operation
+  Document, Operation, BellFilled
 } from '@element-plus/icons-vue';
 // 自定义卫星图标（组件库无内置卫星图标，与整体线框风格保持一致）
 // 提取为独立 SFC：项目构建的 Vue 为 runtime-only 版本，template 字符串无法运行时编译
@@ -121,7 +122,7 @@ import Satellite from '@/components/SatelliteIcon.vue';
 export default {
   components: {
     Monitor, SetUp, List, Connection, Position, Aim, TrendCharts, Expand, Fold,
-    Document, Operation, Satellite
+    Document, Operation, BellFilled, Satellite
   },
   data() {
     return {
@@ -146,6 +147,8 @@ export default {
   created() {
     this.nickname = localStorage.getItem("nickname");
     this.isAdmin = localStorage.getItem("isAdmin");
+    // 移动端（窄屏）默认收起侧栏，点左上角按钮展开为浮层
+    if (typeof window !== 'undefined' && window.innerWidth <= 768) this.isCollapse = true;
   },
   methods: {
     openPwdDialog() {
@@ -478,5 +481,26 @@ export default {
 }
 .page-fade-leave-to {
   opacity: 0;
+}
+
+/* ---------- 移动端适配（≤768px）：侧栏改为浮层，收起时滑出屏外 ---------- */
+@media (max-width: 768px) {
+  .el-aside.tech-aside {
+    position: fixed;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 224px !important;
+    z-index: 1000;
+    transition: transform 0.25s ease;
+  }
+  .el-aside.tech-aside.mobile-collapsed {
+    transform: translateX(-100%);
+  }
+  /* 窄屏隐藏顶栏次要信息，避免挤压 */
+  .header-breadcrumb,
+  .header-status {
+    display: none;
+  }
 }
 </style>
