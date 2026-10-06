@@ -825,7 +825,7 @@ class OperationsControlCenter:
                         self.satellite_network.pause_tasks.remove(task)
                         if task.assigned_satellite:
                             self.satellite_network.satellites[task.assigned_satellite].tasks_len -= 1
-                        del self.satellite_network.net_tasks_buffer[task_id]
+                    del self.satellite_network.net_tasks_buffer[task_id]
                 else:
                     for task in self.satellite_network.pause_tasks:
                         if task.task_id == task_id:
