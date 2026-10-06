@@ -82,6 +82,9 @@ class OperationsControlCenter:
         self.statistical_data = []  # 统计数据
         self.cluster_data = []  # 星簇数据
         self.planning_results = []  # 规划结果
+        self.is_planning = False  # 是否正在规划（供前端“规划中”提示；与 is_planed 语义相反且独立）
+        self.alert_log = []       # 告警中心：{time, level, category, message, acknowledged}，最多保留 200 条
+        self.state_snapshots = [] # 运行回放：每轮主循环的卫星状态快照（时间/电量/固存/位置），最多 720 条（约1小时）
 
         # 是否使用随机化方式初始化卫星
         self.is_random = False  # 是否使用随机化方式初始化卫星
@@ -590,7 +593,8 @@ class OperationsControlCenter:
                 task_id=None, priority=priority,
                 is_emergency=is_emergency,
                 task_type=task_type,
-                sensor_type=sensor_type, resolution=resolution,
+                sensor_type=sensor_type,
+                resolution=resolution,
                 earliest_start_time=start_time.replace(tzinfo=timezone.utc),
                 latest_end_time=end_time.replace(tzinfo=timezone.utc),
                 target_location=target_location,
@@ -821,7 +825,7 @@ class OperationsControlCenter:
                         self.satellite_network.pause_tasks.remove(task)
                         if task.assigned_satellite:
                             self.satellite_network.satellites[task.assigned_satellite].tasks_len -= 1
-                    del self.satellite_network.net_tasks_buffer[task_id]
+                        del self.satellite_network.net_tasks_buffer[task_id]
                 else:
                     for task in self.satellite_network.pause_tasks:
                         if task.task_id == task_id:
@@ -895,6 +899,50 @@ class OperationsControlCenter:
             return self.network_state
         return None
 
+    # ===== 告警中心 / 运行回放 辅助方法 =====
+    def push_alert(self, level, category, message):
+        """记录一条告警（level: info/warn/alarm，category: 任务/卫星/系统），最多保留 200 条"""
+        try:
+            self.alert_log.append({
+                'time': self.now_time.strftime("%Y-%m-%d %H:%M:%S"),
+                'level': level,
+                'category': category,
+                'message': str(message),
+                'acknowledged': False,
+            })
+            if len(self.alert_log) > 200:
+                self.alert_log = self.alert_log[-200:]
+        except Exception:
+            pass
+
+    def _record_snapshot(self):
+        """每轮主循环记录一次卫星状态快照（供运行回放），最多保留 720 条（约1小时×倍速20）"""
+        try:
+            if not self.satellite_network or not getattr(self.satellite_network, 'satellites', None):
+                return
+            sats = {}
+            for name, sat in self.satellite_network.satellites.items():
+                try:
+                    sp = getattr(sat, 'sub_point', None) or [None, None]
+                    pos = getattr(sat, 'position', None)
+                    sats[name] = {
+                        'battery': round(getattr(sat, 'battery', 0), 1),
+                        'storage': round(getattr(sat, 'storage', 0), 2),
+                        'lat': sp[0],
+                        'lng': sp[1],
+                        'height': round(pos[2], 1) if pos else None,
+                    }
+                except Exception:
+                    continue
+            self.state_snapshots.append({
+                'time': self.now_time.strftime("%Y-%m-%d %H:%M:%S"),
+                'sats': sats,
+            })
+            if len(self.state_snapshots) > 720:
+                self.state_snapshots = self.state_snapshots[-720:]
+        except Exception:
+            pass
+
     # 规划任务
     def planning_tasks(self, tasks, model):
         """
@@ -906,6 +954,7 @@ class OperationsControlCenter:
         original_count = 0
         main_set = set()
         self.satellite_network.is_planed = False  # 设置网络状态为规划中
+        self.is_planning = True  # 供前端“规划中”呼吸提示
         self.time_multiple = 1  # 规划前设置为1
         try:
 
@@ -1320,6 +1369,7 @@ class OperationsControlCenter:
             return []
         finally:
             self.satellite_network.is_planed = True  # 设置卫星网络的规划状态为True
+            self.is_planning = False
             self.time_multiple = self.default_speed_doubling  # 设置时间倍数为默认速度倍数
 
     # 将数据转换为扁平化的形式
@@ -1601,6 +1651,7 @@ class OperationsControlCenter:
                         # 程序控制模式：不自动取队列规划，任务留在队列中等待手动触发（startTask 等）
                         print("程序控制模式：等待手动触发规划")
                     self.now_time = get_now_time_from_start(self.now_time, INTER_VAL_TIME * self.time_multiple)
+                    self._record_snapshot()
                 print(self.now_time)
                 # 同步时间和倍速
                 self.satellite_network.now_time = self.now_time
