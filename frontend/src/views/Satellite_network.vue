@@ -1385,17 +1385,10 @@
         padding: 0 16px;
         background: linear-gradient(180deg, rgba(6, 18, 42, 0.95), rgba(6, 18, 42, 0.55));
     }
-    /* 标题两侧装饰渐变线（左侧线让位给内嵌指标，仅保留右侧） */
+    /* 标题两侧装饰渐变线（左右均隐藏：左侧让位给内嵌指标，右侧让位给倍速控件） */
     .top-header::before, .top-header::after {
-        content: '';
-        position: absolute;
-        top: 50%;
-        width: 20%;
-        height: 1px;
-        background: linear-gradient(90deg, transparent, rgba(0, 220, 255, 0.6));
+        display: none;
     }
-    .top-header::before { display: none; }
-    .top-header::after { right: 130px; transform: scaleX(-1); }
 
     /* 顶栏左侧内嵌紧凑指标 */
     .header-stats {
@@ -1862,6 +1855,3 @@
         100% { transform: translateX(-100%); }
     }
 </style>
-
-  
-  
