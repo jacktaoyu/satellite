@@ -35,6 +35,14 @@
       </div>
       <div class="header-right">
         <div class="sim-time">仿真时间&nbsp;{{ simTime }}</div>
+        <div class="speed-ctrl" title="仿真倍速：真实 5 秒推进 5×倍速 秒的仿真时间（规划期间后端自动锁定为 1，结束后恢复默认 20）">
+          <span class="speed-label">倍速</span>
+          <input class="speed-input" type="number" min="1" max="1000" step="1"
+                 v-model.number="speedInput" @keyup.enter="applySpeed" />
+          <button class="speed-btn" @click="applySpeed">设定</button>
+          <span v-for="p in [1, 20, 50, 100]" :key="p" class="speed-preset"
+                :class="{ active: speedInput === p }" @click="speedInput = p; applySpeed()">×{{ p }}</span>
+        </div>
         <button class="fullscreen-btn" :title="isFullscreen ? '退出全屏' : '全屏展示'" @click="toggleFullscreen">
           <svg v-if="!isFullscreen" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg>
           <svg v-else viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5"/></svg>
@@ -162,12 +170,11 @@
   import Starfield from "@/components/Starfield.vue";
   import CountUp from "@/components/CountUp.vue";
   import SubTrackMap from "@/components/SubTrackMap.vue";
-
-  // 提亮加青色光晕的卫星图标（替换 CZML 内置的暗色 16px 图标）
-  const SAT_ICON_URI = "data:image/png;base64,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";
+  import { SAT_ICON_URI } from "@/utils/satIcon.js";
 
   // ===== 大屏 HUD 数据状态 =====
   const simTime = ref('--');
+  const speedInput = ref(20);   // 仿真倍速（与后端 occ.time_multiple 同步）
   const czmlLoading = ref(true);  // 轨道数据加载中（首次生成需解算全部卫星轨道，耗时较长）
   const satList = ref([]);
   const runningTaskCount = ref(0);
@@ -309,6 +316,33 @@
         updateSatisfactionChart(ev.slice(-10));
       }
     } catch (e) { }
+    // 同步后端当前倍速（规划期间后端强制为 1，结束后恢复默认 20；输入框聚焦时不覆盖用户输入）
+    try {
+      const r = await authFetch('/satellites/getMultiplier');
+      const d = await r.json();
+      const editing = document.activeElement && document.activeElement.classList.contains('speed-input');
+      if (!editing && Number.isInteger(d.multiplier) && d.multiplier >= 1) speedInput.value = d.multiplier;
+    } catch (e) { }
+  }
+
+  // 设定仿真倍速：调用后端 /satellites/getCurrentMultiplierAndTime?multiplier=N（N 为 ≥1 整数）
+  async function applySpeed() {
+    const m = Math.floor(Number(speedInput.value));
+    if (!Number.isInteger(m) || m < 1) {
+      pushEvent('倍速必须为 ≥1 的整数', 'warn');
+      return;
+    }
+    speedInput.value = m;
+    try {
+      const r = await authFetch(`/satellites/getCurrentMultiplierAndTime?multiplier=${m}`);
+      if (r.ok) {
+        pushEvent(`仿真倍速已调整为 ×${m}`);
+      } else {
+        pushEvent(`倍速设置失败（HTTP ${r.status}）`, 'warn');
+      }
+    } catch (e) {
+      pushEvent('倍速设置失败：后端不可达', 'warn');
+    }
   }
 
   // 载荷类型分布环形图
@@ -1418,6 +1452,62 @@
         color: #7fd4ff;
         font-family: 'Courier New', monospace;
     }
+    /* 仿真倍速控件（青色 HUD 风格，与 sim-time / fullscreen-btn 一致） */
+    .speed-ctrl {
+        display: flex;
+        align-items: center;
+        gap: 5px;
+        height: 26px;
+        padding: 0 6px;
+        background: rgba(0, 220, 255, 0.08);
+        border: 1px solid rgba(0, 220, 255, 0.35);
+        border-radius: 4px;
+    }
+    .speed-label { font-size: 11px; color: #9fc6e8; letter-spacing: 1px; }
+    .speed-input {
+        width: 48px;
+        height: 18px;
+        padding: 0 4px;
+        background: rgba(0, 220, 255, 0.05);
+        border: 1px solid rgba(0, 220, 255, 0.25);
+        border-radius: 3px;
+        color: #00f0ff;
+        font-size: 12px;
+        font-family: 'Courier New', monospace;
+        text-align: center;
+        outline: none;
+        /* 隐藏 number 输入框的上下箭头 */
+        -moz-appearance: textfield;
+    }
+    .speed-input::-webkit-outer-spin-button, .speed-input::-webkit-inner-spin-button { -webkit-appearance: none; }
+    .speed-input:focus { border-color: rgba(0, 220, 255, 0.6); box-shadow: 0 0 6px rgba(0, 220, 255, 0.3); }
+    .speed-btn {
+        height: 18px;
+        padding: 0 8px;
+        font-size: 11px;
+        color: #00dcff;
+        background: rgba(0, 220, 255, 0.12);
+        border: 1px solid rgba(0, 220, 255, 0.4);
+        border-radius: 3px;
+        cursor: pointer;
+        transition: all 0.25s;
+    }
+    .speed-btn:hover { background: rgba(0, 220, 255, 0.25); box-shadow: 0 0 8px rgba(0, 220, 255, 0.4); }
+    .speed-preset {
+        font-size: 10px;
+        font-family: 'Courier New', monospace;
+        color: #7fd4ff;
+        padding: 0 4px;
+        border-radius: 2px;
+        cursor: pointer;
+        transition: all 0.25s;
+    }
+    .speed-preset:hover { color: #00f0ff; background: rgba(0, 220, 255, 0.15); }
+    .speed-preset.active { color: #050a1e; background: #00dcff; box-shadow: 0 0 6px rgba(0, 220, 255, 0.6); }
+    /* 窄屏时隐藏快捷档位，仅保留输入框 + 设定按钮 */
+    @media (max-width: 1500px) {
+        .speed-preset { display: none; }
+    }
     .header-right {
         position: absolute;
         right: 16px;
@@ -1773,6 +1863,5 @@
     }
 </style>
 
-  
   
   
