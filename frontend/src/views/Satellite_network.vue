@@ -43,6 +43,12 @@
           <span v-for="p in [1, 20, 50, 100]" :key="p" class="speed-preset"
                 :class="{ active: speedInput === p }" @click="speedInput = p; applySpeed()">×{{ p }}</span>
         </div>
+        <div v-if="isPlanning" class="planning-badge" title="后端正在进行任务规划，规划期间倍速自动锁定为 ×1">
+          <i class="pb-dot"></i>规划中…
+        </div>
+        <button class="fullscreen-btn" title="导出当前视角截图（PNG）" @click="exportScreenshot">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+        </button>
         <button class="fullscreen-btn" :title="isFullscreen ? '退出全屏' : '全屏展示'" @click="toggleFullscreen">
           <svg v-if="!isFullscreen" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg>
           <svg v-else viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5"/></svg>
@@ -57,6 +63,18 @@
       <div class="sat-search">
         <input v-model.trim="satSearch" class="sat-search-input" type="text" placeholder="搜索卫星名称 / 载荷类型…" />
         <span v-if="satSearch" class="sat-search-clear" @click="satSearch = ''">×</span>
+      </div>
+      <div class="sat-filter">
+        <select v-model="batteryFilter" class="sat-filter-select" title="按剩余电量筛选">
+          <option value="">全部电量</option>
+          <option value="low">低电量（&lt;20Wh）</option>
+          <option value="mid">20–2000Wh</option>
+          <option value="high">充足（&gt;2000Wh）</option>
+        </select>
+        <select v-model="orbitFilter" class="sat-filter-select" title="按轨道面筛选">
+          <option value="">全部轨道面</option>
+          <option v-for="o in orbitOptions" :key="o" :value="o">{{ o }}</option>
+        </select>
       </div>
       <div class="sat-list">
         <div v-for="sat in filteredSats" :key="sat.id" class="sat-item" @click="focusSat(sat)">
@@ -153,7 +171,8 @@
       <span class="bottom-label"><i class="dot"></i>实时事件</span>
       <div class="event-scroll">
         <div class="event-track">
-          <span v-for="(ev, i) in eventList" :key="i" class="event-item" :class="ev.level">{{ ev.text }}</span>
+          <span v-for="(ev, i) in eventList" :key="i" class="event-item" :class="ev.level"
+                title="点击定位事件相关卫星" @click="onEventClick(ev)">{{ ev.text }}</span>
           <span v-if="eventList.length === 0" class="event-item">系统运行正常，暂无告警事件</span>
         </div>
       </div>
@@ -171,6 +190,7 @@
   import CountUp from "@/components/CountUp.vue";
   import SubTrackMap from "@/components/SubTrackMap.vue";
   import { SAT_ICON_URI } from "@/utils/satIcon.js";
+  import { pushLocalAlert } from "@/utils/alertStore.js";
 
   // ===== 大屏 HUD 数据状态 =====
   const simTime = ref('--');
@@ -207,17 +227,34 @@
   const lowBatteryWarned = new Set(); // 已报过低电量告警的卫星
   let lastSatisfaction = null;      // 上一次满足率，用于生成规划完成事件
   const satSearch = ref('');        // 卫星列表搜索关键字（名称 / 载荷类型）
+  const batteryFilter = ref('');    // 高级筛选：电量区间（'' / low / mid / high）
+  const orbitFilter = ref('');      // 高级筛选：轨道面（卫星别名前缀）
+  const isPlanning = ref(false);    // 后端是否正在规划（呼吸提示，轮询 /satellites/getPlanningStatus）
   const isFullscreen = ref(false);  // 全屏展示状态
   const autoRotate = ref(false);    // 地球自转展示开关（跟踪卫星时自动暂停）
   let rotateHandler = null;         // Cesium postRender 自转回调引用
 
-  // 按关键字过滤卫星列表（匹配名称或载荷类型，不区分大小写）
+  // 轨道面选项：取卫星别名（orbit 字段）去重排序
+  const orbitOptions = computed(() => {
+    const set = new Set();
+    satList.value.forEach(s => { if (s.orbit) set.add(String(s.orbit)); });
+    return Array.from(set).sort();
+  });
+
+  // 卫星列表过滤：关键字（名称/载荷）+ 电量区间 + 轨道面
   const filteredSats = computed(() => {
     const kw = satSearch.value.toLowerCase();
-    if (!kw) return satList.value;
-    return satList.value.filter(s =>
-      String(s.name).toLowerCase().includes(kw) ||
-      String(s.loadType || '').toLowerCase().includes(kw));
+    return satList.value.filter(s => {
+      if (kw && !String(s.name).toLowerCase().includes(kw) &&
+          !String(s.loadType || '').toLowerCase().includes(kw)) return false;
+      if (batteryFilter.value && typeof s.battery === 'number') {
+        if (batteryFilter.value === 'low' && s.battery >= 20) return false;
+        if (batteryFilter.value === 'mid' && (s.battery < 20 || s.battery > 2000)) return false;
+        if (batteryFilter.value === 'high' && s.battery <= 2000) return false;
+      }
+      if (orbitFilter.value && String(s.orbit || '') !== orbitFilter.value) return false;
+      return true;
+    });
   });
 
   // 全屏展示切换（演示模式：浏览器级全屏）
@@ -323,6 +360,12 @@
       const editing = document.activeElement && document.activeElement.classList.contains('speed-input');
       if (!editing && Number.isInteger(d.multiplier) && d.multiplier >= 1) speedInput.value = d.multiplier;
     } catch (e) { }
+    // 同步后端规划状态（“规划中”呼吸提示）
+    try {
+      const r = await authFetch('/satellites/getPlanningStatus');
+      const d = await r.json();
+      isPlanning.value = !!d.planning;
+    } catch (e) { }
   }
 
   // 设定仿真倍速：调用后端 /satellites/getCurrentMultiplierAndTime?multiplier=N（N 为 ≥1 整数）
@@ -384,11 +427,50 @@
     return Math.min(100, Math.max(0, Math.round((now - start) / (end - start) * 100)));
   }
 
-  // 底部事件队列：追加一条事件，最多保留 30 条
+  // 底部事件队列：追加一条事件，最多保留 30 条，并持久化到 localStorage（刷新不丢失）
+  const EVENT_STORAGE_KEY = 'sat_event_log';
+  function persistEvents() {
+    try { localStorage.setItem(EVENT_STORAGE_KEY, JSON.stringify(eventList.value.slice(-30))); } catch (e) { }
+  }
   function pushEvent(text, level = 'info') {
     const time = simTime.value.length >= 19 ? simTime.value.slice(11, 19) : '';
     eventList.value.push({ text: `${time} ${text}`, level });
     if (eventList.value.length > 30) eventList.value.splice(0, eventList.value.length - 30);
+    persistEvents();
+    // 同步写入告警中心（warn/alarm 级别才入告警，避免 info 刷屏）
+    if (level === 'warn' || level === 'alarm') pushLocalAlert(level, '系统', text);
+  }
+  // 恢复上次会话的事件记录
+  (function restoreEvents() {
+    try {
+      const saved = JSON.parse(localStorage.getItem(EVENT_STORAGE_KEY) || '[]');
+      if (Array.isArray(saved)) eventList.value = saved.slice(-30);
+    } catch (e) { }
+  })();
+
+  // 点击事件：若内容包含某颗卫星名称，则 3D 视角飞向该卫星
+  function onEventClick(ev) {
+    const sat = satList.value.find(s => ev.text && ev.text.includes(s.name));
+    if (sat) focusSat(sat);
+  }
+
+  // 导出当前 3D 视角截图（PNG 下载）；preserveDrawingBuffer 已在 viewer 初始化时开启
+  function exportScreenshot() {
+    if (!viewerRef) return;
+    try {
+      viewerRef.render();
+      viewerRef.scene.canvas.toBlob(blob => {
+        if (!blob) { pushEvent('截图导出失败', 'warn'); return; }
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = `卫星网络态势_${new Date().toLocaleString('sv-SE').replace(/[: ]/g, '-')}.png`;
+        a.click();
+        URL.revokeObjectURL(a.href);
+        pushEvent('已导出当前视角截图');
+      }, 'image/png');
+    } catch (e) {
+      pushEvent('截图导出失败：' + e.message, 'warn');
+    }
   }
 
   // 对比任务状态快照，生成“新任务 / 状态变更”事件
@@ -411,6 +493,7 @@
       if (typeof s.battery === 'number' && s.battery < 20 && !lowBatteryWarned.has(s.name)) {
         lowBatteryWarned.add(s.name);
         pushEvent(`卫星 ${s.name} 电量过低（${s.battery}Wh），请注意`, 'alarm');
+        pushLocalAlert('alarm', '卫星', `卫星 ${s.name} 电量过低（${s.battery}Wh）`);
       }
     });
   }
@@ -914,7 +997,6 @@
         return;
       }
   
-
       // 创建视锥体
       // orientation - 相机镜头对准的方法.
       //   heading - 代表镜头左右方向, 正值为右, 负值为左, 360度和0度是一样的
@@ -1225,292 +1307,138 @@
     /* ===== 中央态势装饰环 ===== */
     .center-hud {
         position: absolute;
-        left: 50%;
-        top: 50%;
+        top: 50%; left: 50%;
+        width: 420px; height: 420px;
         transform: translate(-50%, -50%);
-        width: min(72vh, 60vw);
-        height: min(72vh, 60vw);
         pointer-events: none;
         z-index: 5;
+        opacity: 0.5;
     }
     .radar-ring {
-        position: absolute;
+        position: absolute; inset: 0;
+        border: 1px solid rgba(0, 220, 255, 0.25);
         border-radius: 50%;
     }
-    .ring-a {
-        inset: 0;
-        border: 1px dashed rgba(0, 220, 255, 0.35);
-        box-shadow: 0 0 20px rgba(0, 220, 255, 0.08);
-        animation: hud-spin 60s linear infinite;
-    }
-    .ring-b {
-        inset: 6%;
-        border: 1px solid rgba(0, 220, 255, 0.18);
-        border-top-color: rgba(0, 240, 255, 0.7);
-        animation: hud-spin 18s linear infinite reverse;
-    }
-    /* 轨道数据加载提示层 */
-    .czml-loading {
-        position: absolute;
-        left: 50%;
-        top: 50%;
-        transform: translate(-50%, -50%);
-        z-index: 30;
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        gap: 12px;
-        padding: 26px 34px;
-        background: rgba(4, 14, 32, 0.82);
-        border: 1px solid rgba(0, 220, 255, 0.35);
-        border-radius: 10px;
-        box-shadow: 0 0 30px rgba(0, 220, 255, 0.15);
-        backdrop-filter: blur(8px);
-    }
-    .czml-loading-ring {
-        width: 38px;
-        height: 38px;
-        border-radius: 50%;
-        border: 2px solid rgba(0, 220, 255, 0.2);
-        border-top-color: #00f0ff;
-        animation: hud-spin 1s linear infinite;
-    }
-    .czml-loading-text {
-        font-size: 13px;
-        letter-spacing: 2px;
-        color: #cfeeff;
-    }
-    .czml-loading-sub {
-        font-size: 10px;
-        letter-spacing: 3px;
-        color: #4d7a9a;
-        font-family: 'Courier New', monospace;
-    }
-    .fade-enter-active, .fade-leave-active { transition: opacity 0.3s ease; }
-    .fade-enter-from, .fade-leave-to { opacity: 0; }
-    @keyframes hud-spin {
-        from { transform: rotate(0deg); }
-        to { transform: rotate(360deg); }
-    }
-    .crosshair {
-        position: absolute;
-        background: linear-gradient(90deg, transparent, rgba(0, 220, 255, 0.25), transparent);
-    }
-    .crosshair-h { left: -8%; right: -8%; top: 50%; height: 1px; }
-    .crosshair-v {
-        top: -8%; bottom: -8%; left: 50%; width: 1px;
-        background: linear-gradient(180deg, transparent, rgba(0, 220, 255, 0.25), transparent);
-    }
+    .ring-a { animation: ring-spin 24s linear infinite; border-style: dashed; }
+    .ring-b { inset: 40px; border-color: rgba(0, 220, 255, 0.15); animation: ring-spin 36s linear infinite reverse; }
+    @keyframes ring-spin { to { transform: rotate(360deg); } }
+    .crosshair { position: absolute; background: rgba(0, 220, 255, 0.12); }
+    .crosshair-h { top: 50%; left: -30px; right: -30px; height: 1px; }
+    .crosshair-v { left: 50%; top: -30px; bottom: -30px; width: 1px; }
 
-    /* 左右面板补充右上/左下角标，构成四角 HUD 边框 */
-    .pc {
-        position: absolute;
-        width: 12px;
-        height: 12px;
-        z-index: 1;
-    }
-    .pc-tr {
-        top: -1px; right: -1px;
-        border-top: 2px solid #00f0ff;
-        border-right: 2px solid #00f0ff;
-    }
-    .pc-bl {
-        bottom: -1px; left: -1px;
-        border-bottom: 2px solid #00f0ff;
-        border-left: 2px solid #00f0ff;
-    }
-
-    /* ===== HUD 通用面板样式：深色半透明 + 青色发光描边 ===== */
+    /* ===== 通用 HUD 面板 ===== */
     .hud {
         position: absolute;
-        background: rgba(8, 20, 46, 0.78);
-        border: 1px solid rgba(0, 220, 255, 0.35);
-        border-radius: 4px;
-        box-shadow: 0 0 12px rgba(0, 220, 255, 0.15), inset 0 0 20px rgba(0, 100, 200, 0.1);
-        backdrop-filter: blur(4px);
-        color: #cfe8ff;
         z-index: 10;
+        background: rgba(6, 18, 42, 0.72);
+        border: 1px solid rgba(0, 220, 255, 0.28);
+        border-radius: 4px;
+        backdrop-filter: blur(4px);
+        box-shadow: 0 0 18px rgba(0, 140, 255, 0.15), inset 0 0 30px rgba(0, 80, 160, 0.12);
     }
+    /* 四角科技角标（左上/右下，与左右面板错开） */
+    .pc { position: absolute; width: 10px; height: 10px; z-index: 11; pointer-events: none; }
+    .pc-tr { top: -1px; right: -1px; border-top: 2px solid #00f0ff; border-right: 2px solid #00f0ff; }
+    .pc-bl { bottom: -1px; left: -1px; border-bottom: 2px solid #00f0ff; border-left: 2px solid #00f0ff; }
     .panel-title {
-        position: relative;
-        overflow: hidden;
+        padding: 8px 12px;
         font-size: 13px;
         font-weight: 600;
         color: #00dcff;
-        padding: 8px 12px;
-        border-bottom: 1px solid rgba(0, 220, 255, 0.25);
         letter-spacing: 1px;
+        border-bottom: 1px solid rgba(0, 220, 255, 0.18);
+        text-shadow: 0 0 6px rgba(0, 220, 255, 0.5);
         display: flex;
-        justify-content: flex-start;
+        justify-content: space-between;
         align-items: center;
-        background: linear-gradient(90deg, rgba(0, 220, 255, 0.12), transparent);
-    }
-    /* 面板标题流光扫过动画 */
-    .panel-title::after {
-        content: '';
-        position: absolute;
-        top: 0;
-        left: -40%;
-        width: 30%;
-        height: 100%;
-        background: linear-gradient(90deg, transparent, rgba(0, 240, 255, 0.12), transparent);
-        animation: title-sheen 3.5s ease-in-out infinite;
-        pointer-events: none;
-    }
-    @keyframes title-sheen {
-        0% { left: -40%; }
-        60%, 100% { left: 110%; }
-    }
-    .panel-title::before {
-        content: '';
-        display: inline-block;
-        width: 3px;
-        height: 12px;
-        background: #00f0ff;
-        box-shadow: 0 0 6px rgba(0, 240, 255, 0.8);
-        margin-right: 8px;
         flex-shrink: 0;
     }
-    .panel-title .close-btn { margin-left: auto; }
+    .panel-title::before { content: '▍'; margin-right: 4px; color: #00f0ff; }
 
-    /* 顶部标题栏 */
+    /* 顶部标题栏：三段式布局（左指标 / 中标题 / 右时间与按钮），四角描边已由 ::before/::after 承载 */
     .top-header {
-        top: 0; left: 0; right: 0;
-        height: 56px;
-        border-radius: 0;
-        border-left: none; border-right: none; border-top: none;
+        top: 10px; left: 10px; right: 10px;
+        height: 46px;
         display: flex;
-        justify-content: center;
         align-items: center;
+        justify-content: space-between;
         padding: 0 16px;
-        background: linear-gradient(180deg, rgba(6, 18, 42, 0.95), rgba(6, 18, 42, 0.55));
     }
-    /* 标题两侧装饰渐变线（左右均隐藏：左侧让位给内嵌指标，右侧让位给倍速控件） */
-    .top-header::before, .top-header::after {
-        display: none;
-    }
-
-    /* 顶栏左侧内嵌紧凑指标 */
-    .header-stats {
-        position: absolute;
-        left: 16px;
-        top: 50%;
-        transform: translateY(-50%);
-        display: flex;
-        gap: 20px;
-    }
-    .hs-item { display: flex; align-items: baseline; gap: 6px; white-space: nowrap; }
-    .hs-item b {
-        font-size: 16px;
-        font-weight: 700;
-        color: #00f0ff;
-        text-shadow: 0 0 8px rgba(0, 240, 255, 0.7);
-        font-family: 'Courier New', monospace;
-    }
-    .hs-item .hs-unit { font-size: 10px; font-style: normal; margin-left: 1px; }
-    .hs-item span { font-size: 11px; color: #9fc6e8; }
-
-    /* 窄屏时顶栏指标紧凑化，避免与居中标题拥挤 */
-    @media (max-width: 1500px) {
-        .header-stats { gap: 12px; left: 12px; }
-        .hs-item b { font-size: 14px; }
-        .hs-item span { font-size: 10px; }
-    }
+    .top-header::before, .top-header::after { display: none; }
     .sys-title {
-        font-size: 21px;
+        font-size: 20px;
         font-weight: 700;
-        letter-spacing: 3px;
-        background: linear-gradient(180deg, #ffffff, #7fd4ff);
-        -webkit-background-clip: text;
-        background-clip: text;
-        -webkit-text-fill-color: transparent;
-        filter: drop-shadow(0 0 8px rgba(0, 220, 255, 0.5));
-        /* 标题光泽缓慢扫过 */
-        background-size: 200% 100%;
-        animation: title-sheen-move 5s ease-in-out infinite;
+        letter-spacing: 6px;
+        color: #00f0ff;
+        text-shadow: 0 0 12px rgba(0, 240, 255, 0.8), 0 0 40px rgba(0, 160, 255, 0.4);
+        position: absolute;
+        left: 50%;
+        transform: translateX(-50%);
+        text-align: center;
     }
-    @keyframes title-sheen-move {
-        0%, 100% { background-position: 0% 0; }
-        50% { background-position: 100% 0; }
-    }
-    .sub-title {
-        margin-left: 12px;
+    .sys-title .sub-title {
+        display: block;
         font-size: 10px;
+        letter-spacing: 4px;
+        color: rgba(0, 220, 255, 0.55);
         font-weight: 400;
-        letter-spacing: 2px;
-        color: rgba(0, 220, 255, 0.5);
+        margin-top: 1px;
     }
+    .header-stats { display: flex; gap: 22px; align-items: center; }
+    .hs-item { display: flex; align-items: baseline; gap: 6px; }
+    .hs-item b { font-size: 18px; color: #00f0ff; font-family: 'Courier New', monospace; text-shadow: 0 0 8px rgba(0, 240, 255, 0.6); }
+    .hs-item span { font-size: 11px; color: #9fc6e8; }
+    .header-right { display: flex; align-items: center; gap: 10px; }
     .sim-time {
         font-size: 13px;
         color: #7fd4ff;
         font-family: 'Courier New', monospace;
+        text-shadow: 0 0 6px rgba(0, 180, 255, 0.5);
     }
-    /* 仿真倍速控件（青色 HUD 风格，与 sim-time / fullscreen-btn 一致） */
-    .speed-ctrl {
-        display: flex;
-        align-items: center;
-        gap: 5px;
-        height: 26px;
-        padding: 0 6px;
-        background: rgba(0, 220, 255, 0.08);
-        border: 1px solid rgba(0, 220, 255, 0.35);
-        border-radius: 4px;
-    }
-    .speed-label { font-size: 11px; color: #9fc6e8; letter-spacing: 1px; }
+    /* 仿真倍速控制 */
+    .speed-ctrl { display: flex; align-items: center; gap: 6px; font-family: 'Courier New', monospace; }
+    .speed-label { font-size: 12px; color: #9fc6e8; }
     .speed-input {
-        width: 48px;
-        height: 18px;
-        padding: 0 4px;
-        background: rgba(0, 220, 255, 0.05);
-        border: 1px solid rgba(0, 220, 255, 0.25);
-        border-radius: 3px;
+        width: 52px; height: 24px;
+        padding: 0 6px;
+        background: rgba(0, 220, 255, 0.06);
+        border: 1px solid rgba(0, 220, 255, 0.3);
+        border-radius: 4px;
         color: #00f0ff;
         font-size: 12px;
         font-family: 'Courier New', monospace;
         text-align: center;
         outline: none;
-        /* 隐藏 number 输入框的上下箭头 */
-        -moz-appearance: textfield;
     }
-    .speed-input::-webkit-outer-spin-button, .speed-input::-webkit-inner-spin-button { -webkit-appearance: none; }
     .speed-input:focus { border-color: rgba(0, 220, 255, 0.6); box-shadow: 0 0 6px rgba(0, 220, 255, 0.3); }
+    .speed-input::-webkit-inner-spin-button { opacity: 1; }
     .speed-btn {
-        height: 18px;
-        padding: 0 8px;
-        font-size: 11px;
-        color: #00dcff;
+        height: 24px; padding: 0 10px;
         background: rgba(0, 220, 255, 0.12);
         border: 1px solid rgba(0, 220, 255, 0.4);
-        border-radius: 3px;
+        border-radius: 4px;
+        color: #00dcff;
+        font-size: 12px;
         cursor: pointer;
         transition: all 0.25s;
     }
     .speed-btn:hover { background: rgba(0, 220, 255, 0.25); box-shadow: 0 0 8px rgba(0, 220, 255, 0.4); }
     .speed-preset {
-        font-size: 10px;
-        font-family: 'Courier New', monospace;
+        font-size: 11px;
         color: #7fd4ff;
-        padding: 0 4px;
-        border-radius: 2px;
+        padding: 2px 6px;
+        border: 1px solid rgba(0, 220, 255, 0.25);
+        border-radius: 3px;
         cursor: pointer;
-        transition: all 0.25s;
+        transition: all 0.2s;
     }
-    .speed-preset:hover { color: #00f0ff; background: rgba(0, 220, 255, 0.15); }
-    .speed-preset.active { color: #050a1e; background: #00dcff; box-shadow: 0 0 6px rgba(0, 220, 255, 0.6); }
-    /* 窄屏时隐藏快捷档位，仅保留输入框 + 设定按钮 */
-    @media (max-width: 1500px) {
-        .speed-preset { display: none; }
+    .speed-preset:hover { border-color: rgba(0, 220, 255, 0.6); }
+    .speed-preset.active {
+        color: #04101f;
+        background: #00dcff;
+        border-color: #00dcff;
+        box-shadow: 0 0 8px rgba(0, 220, 255, 0.6);
     }
-    .header-right {
-        position: absolute;
-        right: 16px;
-        top: 50%;
-        transform: translateY(-50%);
-        display: flex;
-        align-items: center;
-        gap: 10px;
-    }
-    /* 全屏展示按钮（演示模式） */
     .fullscreen-btn {
         display: flex;
         align-items: center;
@@ -1526,6 +1454,31 @@
     .fullscreen-btn:hover {
         background: rgba(0, 220, 255, 0.2);
         box-shadow: 0 0 10px rgba(0, 220, 255, 0.4);
+    }
+    /* “规划中”呼吸提示徽章 */
+    .planning-badge {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        height: 26px;
+        padding: 0 10px;
+        font-size: 12px;
+        font-family: 'Courier New', monospace;
+        color: #ffd657;
+        background: rgba(255, 214, 87, 0.08);
+        border: 1px solid rgba(255, 214, 87, 0.4);
+        border-radius: 4px;
+        animation: planning-breathe 1.6s ease-in-out infinite;
+    }
+    .pb-dot {
+        width: 7px; height: 7px;
+        border-radius: 50%;
+        background: #ffd657;
+        box-shadow: 0 0 8px rgba(255, 214, 87, 0.9);
+    }
+    @keyframes planning-breathe {
+        0%, 100% { opacity: 1; box-shadow: 0 0 4px rgba(255, 214, 87, 0.2); }
+        50% { opacity: 0.55; box-shadow: 0 0 14px rgba(255, 214, 87, 0.55); }
     }
     /* 卫星列表搜索框 */
     .sat-search {
@@ -1550,6 +1503,26 @@
         border-color: rgba(0, 220, 255, 0.6);
         box-shadow: 0 0 8px rgba(0, 220, 255, 0.25);
     }
+    /* 高级筛选：电量区间 / 轨道面 */
+    .sat-filter {
+        display: flex;
+        gap: 6px;
+        margin: 0 10px 6px;
+    }
+    .sat-filter-select {
+        flex: 1;
+        min-width: 0;
+        height: 24px;
+        padding: 0 6px;
+        background: rgba(0, 220, 255, 0.05);
+        border: 1px solid rgba(0, 220, 255, 0.25);
+        border-radius: 4px;
+        color: #7fd4ff;
+        font-size: 11px;
+        outline: none;
+        cursor: pointer;
+    }
+    .sat-filter-select option { background: #04101f; color: #cfe8ff; }
     .sat-search-clear {
         position: absolute;
         right: 7px;
@@ -1838,7 +1811,10 @@
         color: #9fc6e8;
         margin-right: 40px;
         font-family: 'Courier New', monospace;
+        cursor: pointer; /* 点击可定位事件相关卫星 */
+        transition: color 0.2s;
     }
+    .event-item:hover { color: #00f0ff; }
     /* 事件级别前置小图标 */
     .event-item::before {
         content: '●';
