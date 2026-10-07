@@ -36,6 +36,7 @@
           <el-menu-item index="/satellite/yongli"><el-icon><Aim /></el-icon><span>示范用例</span></el-menu-item>
           <el-menu-item index="/satellite/xingneng"><el-icon><TrendCharts /></el-icon><span>性能分析</span></el-menu-item>
           <el-menu-item index="/satellite/alerts"><el-icon><BellFilled /></el-icon><span>告警中心</span></el-menu-item>
+          <el-menu-item index="/satellite/replay"><el-icon><VideoPlay /></el-icon><span>态势回放</span></el-menu-item>
         </div>
         <!-- 非管理员账号暂无任何菜单项，给出明确提示而不是空白侧边栏 -->
         <div v-else class="menu-empty-tip">当前账号无可用功能模块，请联系管理员开通权限</div>
@@ -113,7 +114,7 @@
 <script>
 import {
   Monitor, SetUp, List, Connection, Position, Aim, TrendCharts, Expand, Fold,
-  Document, Operation, BellFilled
+  Document, Operation, BellFilled, VideoPlay
 } from '@element-plus/icons-vue';
 // 自定义卫星图标（组件库无内置卫星图标，与整体线框风格保持一致）
 // 提取为独立 SFC：项目构建的 Vue 为 runtime-only 版本，template 字符串无法运行时编译
@@ -122,7 +123,7 @@ import Satellite from '@/components/SatelliteIcon.vue';
 export default {
   components: {
     Monitor, SetUp, List, Connection, Position, Aim, TrendCharts, Expand, Fold,
-    Document, Operation, BellFilled, Satellite
+    Document, Operation, BellFilled, VideoPlay, Satellite
   },
   data() {
     return {
