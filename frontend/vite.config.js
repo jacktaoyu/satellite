@@ -19,6 +19,19 @@ export default defineConfig({
     }, //路径别名（alias）配置："@" 定义了一个别名符号 @；fileURLToPath(new URL("./src", import.meta.url))将 src 目录转换为绝对路径,这样在代码中可以使用 @ 来引用 src 目录下的文件
        // 示例'../../components/Component.vue' = '@/components/Component.vue'
   },
+  build: {
+    rollupOptions: {
+      output: {
+        // 手动分包：大型第三方库独立成 chunk，浏览器可并行加载并长期缓存，
+        // 业务代码更新时不必重新下载 vendor 包，显著加快首屏与后续访问
+        manualChunks: {
+          'vendor-vue': ['vue', 'vue-router'],
+          'vendor-element': ['element-plus', '@element-plus/icons-vue'],
+          'vendor-echarts': ['echarts'],
+        },
+      },
+    },
+  },
 });
 
   // server: {

@@ -12,7 +12,7 @@
           :class="{ active: activeSensor === sensor }"
           @click="activeSensor = sensor"
         >
-          <div class="sensor-icon">{{ getSensorIcon(sensor) }}</div>
+          <el-icon class="sensor-icon"><component :is="getSensorIcon(sensor)" /></el-icon>
           <div class="sensor-name">{{ getSensorLabel(sensor) }}</div>
         </div>
       </div>
@@ -172,9 +172,11 @@
 <script>
 import { ref, reactive, getCurrentInstance } from 'vue';
 import { ElMessage } from 'element-plus';
+import { Camera, Dish, Sunny } from '@element-plus/icons-vue';
 
 export default {
   name: 'NetworkParameters',
+  components: { Camera, Dish, Sunny },
   setup() {
     const { proxy } = getCurrentInstance();
     const activeSensor = ref('optical');
@@ -246,11 +248,11 @@ export default {
 
     const getSensorIcon = (type) => {
       const icons = {
-        optical: '📸',
-        SAR: '📡',
-        infrared: '🌡️'
+        optical: 'Camera',
+        SAR: 'Dish',
+        infrared: 'Sunny'
       };
-      return icons[type] || '•';
+      return icons[type] || 'Camera';
     };
 
     const resetParams = () => {
@@ -306,11 +308,13 @@ export default {
 }
 
 .params-title {
-  color: #7cc3ff;
+  color: #00dcff;
   font-size: 24px;
   margin-bottom: 30px;
   text-align: center;
   font-weight: 600;
+  letter-spacing: 4px;
+  text-shadow: 0 0 18px rgba(0, 220, 255, 0.45);
 }
 
 .sensors-container {
@@ -324,23 +328,23 @@ export default {
 .sensor-card {
   width: 100px;
   padding: 15px;
-  border: 2px solid #1e5a96;
+  border: 2px solid rgba(0, 220, 255, 0.28);
   border-radius: 8px;
-  background: rgba(30, 90, 150, 0.1);
+  background: rgba(0, 220, 255, 0.04);
   cursor: pointer;
   transition: all 0.3s ease;
   text-align: center;
-  color: #7cc3ff;
+  color: #00dcff;
 
   &:hover {
-    border-color: #7cc3ff;
-    background: rgba(124, 195, 255, 0.1);
+    border-color: #00dcff;
+    background: rgba(0, 220, 255, 0.08);
   }
 
   &.active {
-    border-color: #7cc3ff;
-    background: rgba(124, 195, 255, 0.2);
-    box-shadow: 0 0 15px rgba(124, 195, 255, 0.3);
+    border-color: #00dcff;
+    background: rgba(0, 220, 255, 0.15);
+    box-shadow: 0 0 15px rgba(0, 220, 255, 0.25);
   }
 
   .sensor-icon {
@@ -355,12 +359,12 @@ export default {
 }
 
 .params-form-card {
-  background: rgba(11, 43, 68, 0.8) !important;
-  border: 1px solid #1e5a96 !important;
+  background: rgba(3, 12, 28, 0.85) !important;
+  border: 1px solid rgba(0, 220, 255, 0.28) !important;
   margin-bottom: 30px;
 
   .card-header {
-    color: #7cc3ff;
+    color: #00dcff;
     font-size: 16px;
     font-weight: 600;
     display: flex;
@@ -369,7 +373,7 @@ export default {
   }
 
   .header-dot {
-    color: #7cc3ff;
+    color: #00dcff;
     font-size: 14px;
   }
 }
@@ -379,13 +383,13 @@ export default {
     margin-bottom: 20px;
 
     .el-form-item__label {
-      color: #7cc3ff !important;
+      color: #00dcff !important;
       font-size: 13px;
     }
 
     .el-input__wrapper {
-      background-color: rgba(30, 90, 150, 0.3) !important;
-      border: 1px solid #1e5a96 !important;
+      background-color: rgba(0, 220, 255, 0.06) !important;
+      border: 1px solid rgba(0, 220, 255, 0.28) !important;
     }
 
     .el-input__inner {
@@ -397,7 +401,7 @@ export default {
       color: #fff !important;
 
       &::placeholder {
-        color: #7cc3ff;
+        color: #00dcff;
         opacity: 0.5;
       }
     }
@@ -408,18 +412,18 @@ export default {
 
     .el-input-number__decrease,
     .el-input-number__increase {
-      background-color: rgba(124, 195, 255, 0.1) !important;
-      color: #7cc3ff !important;
-      border-color: #1e5a96 !important;
+      background-color: rgba(0, 220, 255, 0.08) !important;
+      color: #00dcff !important;
+      border-color: rgba(0, 220, 255, 0.28) !important;
 
       &:hover {
-        background-color: rgba(124, 195, 255, 0.2) !important;
+        background-color: rgba(0, 220, 255, 0.15) !important;
       }
     }
 
     .el-input__wrapper {
-      background-color: rgba(30, 90, 150, 0.3) !important;
-      border-color: #1e5a96 !important;
+      background-color: rgba(0, 220, 255, 0.06) !important;
+      border-color: rgba(0, 220, 255, 0.28) !important;
     }
 
     input {
@@ -451,24 +455,24 @@ export default {
 .btn-reset {
   width: 120px;
   height: 40px;
-  background-color: rgba(30, 90, 150, 0.3) !important;
-  border: 1px solid #1e5a96 !important;
-  color: #7cc3ff !important;
+  background-color: rgba(0, 220, 255, 0.06) !important;
+  border: 1px solid rgba(0, 220, 255, 0.28) !important;
+  color: #00dcff !important;
   font-weight: 600;
   border-radius: 4px;
   cursor: pointer;
   transition: all 0.3s ease;
 
   &:hover {
-    background-color: rgba(124, 195, 255, 0.1) !important;
-    border-color: #7cc3ff !important;
+    background-color: rgba(0, 220, 255, 0.08) !important;
+    border-color: #00dcff !important;
   }
 }
 
 .btn-submit {
   width: 120px;
   height: 40px;
-  background: linear-gradient(135deg, #1e5a96 0%, #7cc3ff 100%) !important;
+  background: linear-gradient(135deg, rgba(0, 220, 255, 0.28) 0%, #00dcff 100%) !important;
   border: none !important;
   color: #fff !important;
   font-weight: 600;
@@ -478,7 +482,7 @@ export default {
 
   &:hover {
     transform: translateY(-2px);
-    box-shadow: 0 5px 15px rgba(124, 195, 255, 0.3) !important;
+    box-shadow: 0 5px 15px rgba(0, 220, 255, 0.25) !important;
   }
 }
 

@@ -95,12 +95,16 @@
     <el-card shadow="never" class="table-card">
       <el-tabs v-model="activeTab" @tab-change="handleTabChange">
         <el-tab-pane label="待执行任务" name="new">
-          <el-table 
+          <!-- 加载中显示骨架屏，比转圈更贴近表格结构、减少视觉跳变 -->
+          <div v-if="loading" class="table-skeleton">
+            <el-skeleton :rows="8" animated />
+          </div>
+          <el-table
+            v-else
             ref="taskTable"
-            :data="tableData" 
-            stripe 
-            v-loading="loading" 
-            height="500"
+            :data="tableData"
+            stripe
+            max-height="500"
             @selection-change="handleSelectionChange"
             row-key="id"
           >
@@ -183,7 +187,7 @@
         </el-tab-pane>
 
         <el-tab-pane label="历史任务" name="old">
-          <el-table :data="oldTaskData" stripe v-loading="loading" height="500">
+          <el-table :data="oldTaskData" stripe v-loading="loading" max-height="500">
             <el-table-column prop="id" label="ID" width="60" />
             <el-table-column prop="task_name" label="任务名称" width="150" show-overflow-tooltip />
             <el-table-column prop="type" label="任务类型" width="100">
@@ -211,6 +215,16 @@
               </template>
             </el-table-column>
           </el-table>
+        </el-tab-pane>
+
+        <!-- 任务甘特图：按时间轴展示各任务的起止区间，直观看执行冲突与排布 -->
+        <el-tab-pane label="任务甘特图" name="gantt">
+          <div class="gantt-toolbar">
+            <span class="gantt-tip">展示待执行任务的时间分布（最多 40 条，按开始时间排序）</span>
+            <el-button link :icon="Refresh" @click="loadGantt">刷新</el-button>
+          </div>
+          <div v-if="ganttEmpty" class="gantt-empty">暂无带起止时间的任务数据，请先完成任务规划</div>
+          <div v-show="!ganttEmpty" ref="ganttChart" class="gantt-chart" v-loading="ganttLoading"></div>
         </el-tab-pane>
       </el-tabs>
 
@@ -344,6 +358,7 @@
 
 <script>
 import { ElMessage, ElMessageBox } from 'element-plus';
+import echarts from '@/utils/echarts.js';
 import { 
   Search, Refresh, Plus, View, Delete, Edit, VideoPlay, VideoPause, Download, CircleClose, Close
 } from '@element-plus/icons-vue';
@@ -359,6 +374,8 @@ export default {
       activeTab: 'new',
       tableData: [],
       oldTaskData: [],
+      ganttLoading: false,   // 甘特图加载中
+      ganttEmpty: false,     // 甘特图无数据占位
       totalNum: 0,
       search: {
         pageNum: 1,
@@ -440,13 +457,22 @@ export default {
     this.getList();
     this.getStats();
     this.loadClusters();
-    // 任务列表 5 秒轮询，状态变更即时反馈（文档 3.7.10：表格与后端任务库实时联动）；弹窗打开时暂停轮询避免干扰编辑
+    // 任务列表 5 秒轮询，状态变更即时反馈（文档 3.7.10：表格与后端任务库实时联动）；
+    // 弹窗打开时暂停避免干扰编辑；页面在后台标签时同样暂停，回前台立即补刷一次
     this._pollTimer = setInterval(() => {
+      if (document.hidden) return;
       if (!this.addDialogVisible && !this.detailVisible) this.getList();
     }, 5000);
+    this._onVisibility = () => {
+      if (!document.hidden && !this.addDialogVisible && !this.detailVisible) this.getList();
+    };
+    document.addEventListener('visibilitychange', this._onVisibility);
   },
   beforeUnmount() {
     if (this._pollTimer) { clearInterval(this._pollTimer); this._pollTimer = null; }
+    if (this._onVisibility) { document.removeEventListener('visibilitychange', this._onVisibility); this._onVisibility = null; }
+    // 销毁甘特图实例，释放图表资源
+    if (this._ganttInst) { this._ganttInst.dispose(); this._ganttInst = null; }
   },
   methods: {
     normalizeTask(task = {}, source = 'new') {
@@ -608,9 +634,105 @@ export default {
       this.search.pageNum = 1;
       if (tab === 'new') {
         this.getList();
+      } else if (tab === 'gantt') {
+        this.loadGantt();
       } else {
         this.getOldTasks();
       }
+    },
+
+    // 加载任务甘特图：取待执行任务的起止时间绘制时间轴条形图
+    async loadGantt() {
+      this.ganttLoading = true;
+      try {
+        const res = await this.$request.get('/tasks/getNewTasksByCondition');
+        const tasks = (res.data?.data || res.data || []).map((t) => this.normalizeTask(t, 'new'));
+        const rows = tasks
+          .map((t) => ({
+            name: t.task_name || `任务${t.id}`,
+            sat: t.satellite_name || '-',
+            status: t.status || '',
+            start: new Date(String(t.startTime).replace(' ', 'T')).getTime(),
+            end: new Date(String(t.endTime).replace(' ', 'T')).getTime()
+          }))
+          .filter((r) => !isNaN(r.start) && !isNaN(r.end) && r.end > r.start)
+          .sort((a, b) => a.start - b.start)
+          .slice(0, 40);
+        this.ganttEmpty = rows.length === 0;
+        if (rows.length === 0) return;
+        this.$nextTick(() => this.renderGantt(rows));
+      } catch (err) {
+        console.error('加载甘特图数据失败:', err);
+        this.ganttEmpty = true;
+        ElMessage.warning('甘特图数据加载失败，请确认后端服务已启动');
+      } finally {
+        this.ganttLoading = false;
+      }
+    },
+
+    // 渲染甘特图（ECharts custom 系列：横轴时间，纵轴任务，颜色按状态区分）
+    renderGantt(rows) {
+      const el = this.$refs.ganttChart;
+      if (!el) return;
+      if (!this._ganttInst) this._ganttInst = echarts.init(el);
+      const statusColor = {
+        '正在执行': '#ffd657',
+        '等待规划': '#7fd4ff',
+        '已完成': '#7cffb2'
+      };
+      const categories = rows.map((r) => r.name);
+      const inst = this._ganttInst;
+      inst.setOption({
+        tooltip: {
+          formatter: (p) => {
+            const r = rows[p.dataIndex];
+            const fmt = (ts) => new Date(ts).toLocaleString('zh-CN', { hour12: false });
+            return `${r.name}<br/>执行卫星：${r.sat}<br/>状态：${r.status || '-'}<br/>开始：${fmt(r.start)}<br/>结束：${fmt(r.end)}`;
+          }
+        },
+        grid: { top: 10, left: 150, right: 30, bottom: 30 },
+        xAxis: {
+          type: 'time',
+          axisLabel: { color: '#9fc6e8', fontSize: 10 },
+          splitLine: { lineStyle: { color: 'rgba(0,220,255,0.1)' } }
+        },
+        yAxis: {
+          type: 'category',
+          data: categories,
+          inverse: true,
+          axisLabel: {
+            color: '#cfe8ff', fontSize: 11, width: 130, overflow: 'truncate'
+          },
+          axisLine: { lineStyle: { color: 'rgba(0,220,255,0.3)' } }
+        },
+        series: [{
+          type: 'custom',
+          renderItem: (params, api) => {
+            const idx = api.value(0);
+            const start = api.coord([api.value(1), idx]);
+            const end = api.coord([api.value(2), idx]);
+            const height = Math.min(api.size([0, 1])[1] * 0.5, 18);
+            return {
+              type: 'rect',
+              shape: {
+                x: start[0],
+                y: start[1] - height / 2,
+                width: Math.max(end[0] - start[0], 2),
+                height: height,
+                r: 3
+              },
+              style: {
+                fill: statusColor[api.value(3)] || '#00dcff',
+                shadowBlur: 6,
+                shadowColor: 'rgba(0,220,255,0.35)'
+              }
+            };
+          },
+          encode: { x: [1, 2], y: 0 },
+          data: rows.map((r, i) => [i, r.start, r.end, r.status])
+        }]
+      }, true);
+      inst.resize();
     },
 
     // 搜索（重置页码）
@@ -1234,7 +1356,7 @@ export default {
   display: flex;
   justify-content: flex-end;
   padding-top: 16px;
-  border-top: 1px solid #ebeef5;
+  border-top: 1px solid rgba(0, 220, 255, 0.12);
   margin-top: 16px;
 }
 
@@ -1257,5 +1379,23 @@ export default {
     width: 100%;
     margin: 0;
   }
+}
+
+/* 任务甘特图 */
+.gantt-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+.gantt-tip { font-size: 12px; color: #9fc6e8; }
+.gantt-chart { width: 100%; height: 480px; }
+.gantt-empty {
+  padding: 60px 0;
+  text-align: center;
+  font-size: 13px;
+  color: #68809a;
+  border: 1px dashed rgba(0, 220, 255, 0.18);
+  border-radius: 6px;
 }
 </style>

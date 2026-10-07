@@ -67,6 +67,16 @@
                   <div class="stat-label">{{ stat.label }}</div>
               </div>
           </div>
+
+          <!-- 核心功能模块快捷入口 -->
+          <div class="hero-features">
+              <div class="feature-card" v-for="f in features" :key="f.title" @click="enterSystem">
+                  <div class="feature-icon" v-html="f.icon"></div>
+                  <div class="feature-title">{{ f.title }}</div>
+                  <div class="feature-desc">{{ f.desc }}</div>
+                  <div class="feature-line"></div>
+              </div>
+          </div>
       </section>
 
       <footer class="portal-footer">
@@ -103,6 +113,17 @@ export default {
               { label: '待执行任务', value: 0, unit: ' 次', decimals: 0, display: '0' },
               { label: '在线客户端', value: 0, unit: ' 个', decimals: 0, display: '0' }
           ],
+          // 核心功能模块快捷入口卡片（点击统一走“进入系统”流程：推进镜头 → 登录）
+          features: [
+              { title: '组网态势', desc: '三维星簇组网实时监控与可视化',
+                icon: '<svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><ellipse cx="12" cy="12" rx="9" ry="3.5"/><circle cx="12" cy="12" r="1.6" fill="currentColor" stroke="none"/></svg>' },
+              { title: '任务规划', desc: '多星协同任务智能规划与调度',
+                icon: '<svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5h11M9 12h11M9 19h11"/><path d="M4 4.5l1.5 1.5L8 3.5M4 11.5l1.5 1.5L8 10.5M4 18.5l1.5 1.5L8 17.5"/></svg>' },
+              { title: '星簇管理', desc: '星簇编组、重规划与资源管理',
+                icon: '<svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="5" cy="6" r="2"/><circle cx="19" cy="6" r="2"/><circle cx="12" cy="18" r="2"/><path d="M6.5 7.5L10.8 16.4M17.5 7.5l-4.3 8.9M7 6h10"/></svg>' },
+              { title: '效能评估', desc: '算法对比与运行效能多维评估',
+                icon: '<svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20V10M10 20V4M16 20v-8M22 20H2"/></svg>' }
+          ],
       };
   },
   methods: {
@@ -129,11 +150,11 @@ export default {
           });
           // 去掉版权信息
           viewer._cesiumWidget._creditContainer.style.display = "none";
-          // 高德卫星影像图层
+          // 底图：Esri 全球卫星影像（高德瓦片偏远区域高层级会出占位图，Esri 全球覆盖更完整）
           viewer.imageryLayers.removeAll();
           viewer.imageryLayers.addImageryProvider(new Cesium.UrlTemplateImageryProvider({
-              url: 'https://webst0{s}.is.autonavi.com/appmaptile?style=6&x={x}&y={y}&z={z}',
-              subdomains: ['1', '2', '3', '4']
+              url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+              maximumLevel: 13
           }));
           // 禁用鼠标交互，作为纯展示背景
           const controller = viewer.scene.screenSpaceCameraController;
@@ -747,6 +768,12 @@ export default {
   padding: 60px 24px 40px 9vw;
 }
 
+/* Hero 元素阶梯入场：badge → 标题 → 描述 → 按钮 → 看板依次淡入上移 */
+.hero-badge { animation: fade-up 0.7s ease-out both; }
+.hero-title { animation: fade-up 0.7s 0.12s ease-out both; }
+.hero-desc { animation: fade-up 0.7s 0.24s ease-out both; }
+.hero-actions { animation: fade-up 0.7s 0.36s ease-out both; }
+
 /* ===== 数据看板 ===== */
 .hero-stats {
   position: relative;
@@ -816,6 +843,81 @@ export default {
   font-size: 12px;
   letter-spacing: 2px;
   color: rgba(160, 190, 235, 0.65);
+}
+
+/* 核心功能模块快捷入口卡片 */
+.hero-features {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 14px;
+  margin-top: 30px;
+  /* 限制整体宽度不越过屏幕中线的地球区，避免最右卡片遮挡地球 */
+  width: min(720px, 46vw, 92vw);
+  animation: fade-up 0.7s 0.5s ease-out both;
+}
+
+/* 卡片内容紧凑化，适配收窄后的宽度 */
+.hero-features .feature-card { padding: 13px 14px 14px; }
+.hero-features .feature-title { font-size: 13px; }
+.hero-features .feature-desc { font-size: 10px; }
+
+.feature-card {
+  position: relative;
+  overflow: hidden;
+  padding: 16px 18px 18px;
+  border: 1px solid rgba(120, 180, 255, 0.18);
+  border-radius: 10px;
+  background: linear-gradient(160deg, rgba(13, 26, 56, 0.55), rgba(8, 14, 34, 0.45));
+  backdrop-filter: blur(8px);
+  cursor: pointer;
+  transition: transform 0.3s, border-color 0.3s, box-shadow 0.3s;
+}
+
+.feature-card:hover {
+  transform: translateY(-4px);
+  border-color: rgba(0, 220, 255, 0.55);
+  box-shadow: 0 8px 28px rgba(0, 160, 255, 0.22), inset 0 0 24px rgba(0, 220, 255, 0.06);
+}
+
+.feature-icon {
+  color: #4fc3f7;
+  filter: drop-shadow(0 0 6px rgba(79, 195, 247, 0.6));
+  margin-bottom: 8px;
+}
+
+.feature-title {
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 2px;
+  color: #e8f1ff;
+}
+
+.feature-desc {
+  margin-top: 5px;
+  font-size: 11px;
+  line-height: 1.6;
+  color: rgba(160, 190, 235, 0.6);
+}
+
+/* 卡片底部发光扫描线 */
+.feature-line {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  height: 2px;
+  width: 100%;
+  background: linear-gradient(90deg, transparent, rgba(0, 220, 255, 0.8), transparent);
+  background-size: 40% 100%;
+  background-repeat: no-repeat;
+  animation: stats-scan 4s linear infinite;
+  opacity: 0.5;
+  transition: opacity 0.3s;
+}
+
+.feature-card:hover .feature-line { opacity: 1; }
+
+@media (max-width: 900px) {
+  .hero-features { grid-template-columns: repeat(2, 1fr); }
 }
 
 /* 标题辉光 */

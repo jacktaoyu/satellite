@@ -1,7 +1,12 @@
 <template>
   <div class="login-container">
+      <!-- 星空粒子层（最底层） -->
+      <Starfield :density="1.2" :opacity="0.7" />
       <!-- Cesium 3D 地球动态背景 -->
       <div ref="earthBg" class="earth-bg"></div>
+      <!-- 地球外围轨道装饰环 -->
+      <div class="orbit-ring ring-outer"><i class="orbit-sat"></i></div>
+      <div class="orbit-ring ring-inner"></div>
       <!-- 背景装饰光斑 -->
       <div class="glow-orb orb-1"></div>
       <div class="glow-orb orb-2"></div>
@@ -14,6 +19,11 @@
           <div class="intro-badge">SATELLITE CLUSTER COLLABORATIVE PLATFORM</div>
           <h1 class="intro-title">智能星簇<br/><span class="intro-title-grad">协同运行验证系统</span></h1>
           <p class="intro-desc">三维组网可视化 · 任务协同规划 · 运行效能评估</p>
+          <div class="intro-metrics">
+              <div class="im-item"><i class="im-dot"></i>实时态势监控</div>
+              <div class="im-item"><i class="im-dot"></i>多星协同规划</div>
+              <div class="im-item"><i class="im-dot"></i>算法效能评估</div>
+          </div>
       </div>
 
       <LoginCard />
@@ -23,10 +33,11 @@
 <script>
 import * as Cesium from "cesium";
 import LoginCard from "./LoginCard.vue";
+import Starfield from "@/components/Starfield.vue";
 
 export default {
   name: "login",
-  components: { LoginCard },
+  components: { LoginCard, Starfield },
 
   mounted() {
       // 初始化 Cesium 3D 地球动态背景
@@ -48,11 +59,11 @@ export default {
       });
       // 去掉版权信息
       viewer._cesiumWidget._creditContainer.style.display = "none";
-      // 高德卫星影像图层（与卫星网络页保持一致，避免默认图层加载失败）
+      // 底图：Esri 全球卫星影像（与卫星网络页保持一致，全球覆盖无占位图）
       viewer.imageryLayers.removeAll();
       viewer.imageryLayers.addImageryProvider(new Cesium.UrlTemplateImageryProvider({
-          url: 'https://webst0{s}.is.autonavi.com/appmaptile?style=6&x={x}&y={y}&z={z}',
-          subdomains: ['1', '2', '3', '4']
+          url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+          maximumLevel: 13
       }));
       // 禁用鼠标交互，作为纯展示背景
       const controller = viewer.scene.screenSpaceCameraController;
@@ -153,6 +164,81 @@ export default {
 @keyframes float {
   0%, 100% { transform: translate(0, 0); }
   50% { transform: translate(30px, -30px); }
+}
+
+/* 地球外围轨道装饰环：与地球同中心，纯装饰 */
+.orbit-ring {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  border: 1px dashed rgba(0, 220, 255, 0.22);
+  z-index: 1;
+  pointer-events: none;
+}
+.ring-outer {
+  width: 52vw;
+  height: 52vw;
+  animation: orbit-spin 90s linear infinite;
+}
+.ring-inner {
+  width: 46vw;
+  height: 46vw;
+  border-style: solid;
+  border-color: rgba(0, 220, 255, 0.1);
+  border-top-color: rgba(0, 240, 255, 0.45);
+  animation: orbit-spin 40s linear infinite reverse;
+}
+/* 外环上一颗绕行"卫星"光点 */
+.orbit-sat {
+  position: absolute;
+  top: -4px;
+  left: 50%;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #00f0ff;
+  box-shadow: 0 0 12px rgba(0, 240, 255, 0.9), 0 0 30px rgba(0, 240, 255, 0.4);
+}
+@keyframes orbit-spin {
+  from { transform: translate(-50%, -50%) rotate(0deg); }
+  to { transform: translate(-50%, -50%) rotate(360deg); }
+}
+
+/* 标语区底部能力标签 */
+.intro-metrics {
+  margin-top: 34px;
+  display: flex;
+  gap: 22px;
+  flex-wrap: wrap;
+}
+.im-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  letter-spacing: 2px;
+  color: rgba(160, 200, 245, 0.75);
+  padding: 7px 14px;
+  border: 1px solid rgba(0, 220, 255, 0.18);
+  border-radius: 999px;
+  background: rgba(0, 220, 255, 0.04);
+  backdrop-filter: blur(6px);
+}
+.im-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #00f0ff;
+  box-shadow: 0 0 8px rgba(0, 240, 255, 0.8);
+  animation: im-breathe 2.2s ease-in-out infinite;
+}
+.im-item:nth-child(2) .im-dot { animation-delay: -0.7s; }
+.im-item:nth-child(3) .im-dot { animation-delay: -1.4s; }
+@keyframes im-breathe {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
 }
 
 @keyframes card-in {
@@ -256,5 +342,7 @@ export default {
   .intro-panel { display: none; }
   .login-container { justify-content: center; padding: 20px; }
   .earth-bg { top: 0; left: 0; transform: none; width: 100%; height: 100%; }
+  /* 窄屏隐藏轨道环，避免与地球背景错位 */
+  .orbit-ring { display: none; }
 }
 </style>

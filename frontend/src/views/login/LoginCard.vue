@@ -115,7 +115,13 @@ export default {
                   localStorage.setItem("isAdmin", res.data.data.isAdmin);
                   localStorage.setItem("token", res.data.data.token);
                   this.$message.success("登录成功") //提示成功消息
-                  this.$router.push('/satellite/satellite_network')
+                  // 按账号类型分流：管理员进控制台；普通用户无控制台权限，
+                  // 直接回门户页，避免被路由守卫拦截弹“无权限”警告
+                  if (String(res.data.data.isAdmin) === '1') {
+                      this.$router.push('/satellite/satellite_network')
+                  } else {
+                      this.$router.push('/portal')
+                  }
               } else {
                   this.$message.error(res.data.meta.message); //提示错误消息
               }
@@ -172,6 +178,12 @@ export default {
   border: 1px solid rgba(120, 180, 255, 0.3);
   box-shadow: 0 0 20px rgba(64, 158, 255, 0.25);
   margin-bottom: 14px;
+  animation: logo-pulse 3s ease-in-out infinite;
+}
+/* logo 光环呼吸脉动 */
+@keyframes logo-pulse {
+  0%, 100% { box-shadow: 0 0 20px rgba(64, 158, 255, 0.25); }
+  50% { box-shadow: 0 0 30px rgba(79, 195, 247, 0.55), 0 0 60px rgba(79, 195, 247, 0.2); }
 }
 
 .brand-name {
@@ -183,8 +195,9 @@ export default {
 
 .brand-sub {
   margin-top: 6px;
-  font-size: 10px;
-  letter-spacing: 3px;
+  font-size: 9px;
+  letter-spacing: 1.5px;
+  white-space: nowrap;
   color: rgba(160, 190, 235, 0.55);
 }
 

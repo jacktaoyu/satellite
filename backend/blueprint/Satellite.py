@@ -536,6 +536,55 @@ def get_multiplier():
     return {"multiplier": occ.time_multiple}
 
 
+# 是否正在规划（前端“规划中”呼吸提示）
+@satellite_bp.route('/getPlanningStatus', methods=['GET'])
+def get_planning_status():
+    return {"planning": bool(getattr(occ, 'is_planning', False))}
+
+
+# ===== 告警中心 =====
+@satellite_bp.route('/alerts', methods=['GET'])
+def get_alerts():
+    """告警列表，支持 level / category 过滤，按时间倒序返回"""
+    level = request.args.get('level')
+    category = request.args.get('category')
+    alerts = list(getattr(occ, 'alert_log', []))
+    if level:
+        alerts = [a for a in alerts if a.get('level') == level]
+    if category:
+        alerts = [a for a in alerts if a.get('category') == category]
+    return {"alerts": alerts[::-1]}
+
+
+@satellite_bp.route('/alerts/ack', methods=['POST'])
+def ack_alert():
+    """确认告警：index 为告警在 alert_log 中的下标；index=-1 表示全部确认"""
+    data = request.get_json(silent=True) or {}
+    idx = data.get('index', -1)
+    log = getattr(occ, 'alert_log', [])
+    if idx == -1:
+        for a in log:
+            a['acknowledged'] = True
+    elif 0 <= idx < len(log):
+        log[idx]['acknowledged'] = True
+    else:
+        return jsonify({"error": "index 越界"}), 400
+    return "ok"
+
+
+# ===== 运行回放 =====
+@satellite_bp.route('/replay/snapshots', methods=['GET'])
+def get_replay_snapshots():
+    """回放快照列表。?index=-1 返回全部；否则返回指定下标那条。最多保留 720 条"""
+    snaps = list(getattr(occ, 'state_snapshots', []))
+    idx = request.args.get('index', type=int)
+    if idx is None or idx == -1:
+        return {"count": len(snaps), "snapshots": snaps}
+    if 0 <= idx < len(snaps):
+        return {"count": len(snaps), "snapshot": snaps[idx]}
+    return jsonify({"error": "index 越界"}), 400
+
+
 # 保存图片路径
 @satellite_bp.route('/picPath', methods=['GET'])
 def save_image_path():
