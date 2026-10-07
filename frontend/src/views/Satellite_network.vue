@@ -997,6 +997,7 @@
         return;
       }
   
+
       // 创建视锥体
       // orientation - 相机镜头对准的方法.
       //   heading - 代表镜头左右方向, 正值为右, 负值为左, 360度和0度是一样的
@@ -1307,138 +1308,292 @@
     /* ===== 中央态势装饰环 ===== */
     .center-hud {
         position: absolute;
-        top: 50%; left: 50%;
-        width: 420px; height: 420px;
+        left: 50%;
+        top: 50%;
         transform: translate(-50%, -50%);
+        width: min(72vh, 60vw);
+        height: min(72vh, 60vw);
         pointer-events: none;
         z-index: 5;
-        opacity: 0.5;
     }
     .radar-ring {
-        position: absolute; inset: 0;
-        border: 1px solid rgba(0, 220, 255, 0.25);
+        position: absolute;
         border-radius: 50%;
     }
-    .ring-a { animation: ring-spin 24s linear infinite; border-style: dashed; }
-    .ring-b { inset: 40px; border-color: rgba(0, 220, 255, 0.15); animation: ring-spin 36s linear infinite reverse; }
-    @keyframes ring-spin { to { transform: rotate(360deg); } }
-    .crosshair { position: absolute; background: rgba(0, 220, 255, 0.12); }
-    .crosshair-h { top: 50%; left: -30px; right: -30px; height: 1px; }
-    .crosshair-v { left: 50%; top: -30px; bottom: -30px; width: 1px; }
+    .ring-a {
+        inset: 0;
+        border: 1px dashed rgba(0, 220, 255, 0.35);
+        box-shadow: 0 0 20px rgba(0, 220, 255, 0.08);
+        animation: hud-spin 60s linear infinite;
+    }
+    .ring-b {
+        inset: 6%;
+        border: 1px solid rgba(0, 220, 255, 0.18);
+        border-top-color: rgba(0, 240, 255, 0.7);
+        animation: hud-spin 18s linear infinite reverse;
+    }
+    /* 轨道数据加载提示层 */
+    .czml-loading {
+        position: absolute;
+        left: 50%;
+        top: 50%;
+        transform: translate(-50%, -50%);
+        z-index: 30;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 12px;
+        padding: 26px 34px;
+        background: rgba(4, 14, 32, 0.82);
+        border: 1px solid rgba(0, 220, 255, 0.35);
+        border-radius: 10px;
+        box-shadow: 0 0 30px rgba(0, 220, 255, 0.15);
+        backdrop-filter: blur(8px);
+    }
+    .czml-loading-ring {
+        width: 38px;
+        height: 38px;
+        border-radius: 50%;
+        border: 2px solid rgba(0, 220, 255, 0.2);
+        border-top-color: #00f0ff;
+        animation: hud-spin 1s linear infinite;
+    }
+    .czml-loading-text {
+        font-size: 13px;
+        letter-spacing: 2px;
+        color: #cfeeff;
+    }
+    .czml-loading-sub {
+        font-size: 10px;
+        letter-spacing: 3px;
+        color: #4d7a9a;
+        font-family: 'Courier New', monospace;
+    }
+    .fade-enter-active, .fade-leave-active { transition: opacity 0.3s ease; }
+    .fade-enter-from, .fade-leave-to { opacity: 0; }
+    @keyframes hud-spin {
+        from { transform: rotate(0deg); }
+        to { transform: rotate(360deg); }
+    }
+    .crosshair {
+        position: absolute;
+        background: linear-gradient(90deg, transparent, rgba(0, 220, 255, 0.25), transparent);
+    }
+    .crosshair-h { left: -8%; right: -8%; top: 50%; height: 1px; }
+    .crosshair-v {
+        top: -8%; bottom: -8%; left: 50%; width: 1px;
+        background: linear-gradient(180deg, transparent, rgba(0, 220, 255, 0.25), transparent);
+    }
 
-    /* ===== 通用 HUD 面板 ===== */
+    /* 左右面板补充右上/左下角标，构成四角 HUD 边框 */
+    .pc {
+        position: absolute;
+        width: 12px;
+        height: 12px;
+        z-index: 1;
+    }
+    .pc-tr {
+        top: -1px; right: -1px;
+        border-top: 2px solid #00f0ff;
+        border-right: 2px solid #00f0ff;
+    }
+    .pc-bl {
+        bottom: -1px; left: -1px;
+        border-bottom: 2px solid #00f0ff;
+        border-left: 2px solid #00f0ff;
+    }
+
+    /* ===== HUD 通用面板样式：深色半透明 + 青色发光描边 ===== */
     .hud {
         position: absolute;
-        z-index: 10;
-        background: rgba(6, 18, 42, 0.72);
-        border: 1px solid rgba(0, 220, 255, 0.28);
+        background: rgba(8, 20, 46, 0.78);
+        border: 1px solid rgba(0, 220, 255, 0.35);
         border-radius: 4px;
+        box-shadow: 0 0 12px rgba(0, 220, 255, 0.15), inset 0 0 20px rgba(0, 100, 200, 0.1);
         backdrop-filter: blur(4px);
-        box-shadow: 0 0 18px rgba(0, 140, 255, 0.15), inset 0 0 30px rgba(0, 80, 160, 0.12);
+        color: #cfe8ff;
+        z-index: 10;
     }
-    /* 四角科技角标（左上/右下，与左右面板错开） */
-    .pc { position: absolute; width: 10px; height: 10px; z-index: 11; pointer-events: none; }
-    .pc-tr { top: -1px; right: -1px; border-top: 2px solid #00f0ff; border-right: 2px solid #00f0ff; }
-    .pc-bl { bottom: -1px; left: -1px; border-bottom: 2px solid #00f0ff; border-left: 2px solid #00f0ff; }
     .panel-title {
-        padding: 8px 12px;
+        position: relative;
+        overflow: hidden;
         font-size: 13px;
         font-weight: 600;
         color: #00dcff;
+        padding: 8px 12px;
+        border-bottom: 1px solid rgba(0, 220, 255, 0.25);
         letter-spacing: 1px;
-        border-bottom: 1px solid rgba(0, 220, 255, 0.18);
-        text-shadow: 0 0 6px rgba(0, 220, 255, 0.5);
         display: flex;
-        justify-content: space-between;
+        justify-content: flex-start;
         align-items: center;
+        background: linear-gradient(90deg, rgba(0, 220, 255, 0.12), transparent);
+    }
+    /* 面板标题流光扫过动画 */
+    .panel-title::after {
+        content: '';
+        position: absolute;
+        top: 0;
+        left: -40%;
+        width: 30%;
+        height: 100%;
+        background: linear-gradient(90deg, transparent, rgba(0, 240, 255, 0.12), transparent);
+        animation: title-sheen 3.5s ease-in-out infinite;
+        pointer-events: none;
+    }
+    @keyframes title-sheen {
+        0% { left: -40%; }
+        60%, 100% { left: 110%; }
+    }
+    .panel-title::before {
+        content: '';
+        display: inline-block;
+        width: 3px;
+        height: 12px;
+        background: #00f0ff;
+        box-shadow: 0 0 6px rgba(0, 240, 255, 0.8);
+        margin-right: 8px;
         flex-shrink: 0;
     }
-    .panel-title::before { content: '▍'; margin-right: 4px; color: #00f0ff; }
+    .panel-title .close-btn { margin-left: auto; }
 
-    /* 顶部标题栏：三段式布局（左指标 / 中标题 / 右时间与按钮），四角描边已由 ::before/::after 承载 */
+    /* 顶部标题栏 */
     .top-header {
-        top: 10px; left: 10px; right: 10px;
-        height: 46px;
+        top: 0; left: 0; right: 0;
+        height: 56px;
+        border-radius: 0;
+        border-left: none; border-right: none; border-top: none;
         display: flex;
+        justify-content: center;
         align-items: center;
-        justify-content: space-between;
         padding: 0 16px;
+        background: linear-gradient(180deg, rgba(6, 18, 42, 0.95), rgba(6, 18, 42, 0.55));
     }
-    .top-header::before, .top-header::after { display: none; }
-    .sys-title {
-        font-size: 20px;
-        font-weight: 700;
-        letter-spacing: 6px;
-        color: #00f0ff;
-        text-shadow: 0 0 12px rgba(0, 240, 255, 0.8), 0 0 40px rgba(0, 160, 255, 0.4);
+    /* 标题两侧装饰渐变线（左右均隐藏：左侧让位给内嵌指标，右侧让位给倍速控件） */
+    .top-header::before, .top-header::after {
+        display: none;
+    }
+
+    /* 顶栏左侧内嵌紧凑指标 */
+    .header-stats {
         position: absolute;
-        left: 50%;
-        transform: translateX(-50%);
-        text-align: center;
+        left: 16px;
+        top: 50%;
+        transform: translateY(-50%);
+        display: flex;
+        gap: 20px;
     }
-    .sys-title .sub-title {
-        display: block;
-        font-size: 10px;
-        letter-spacing: 4px;
-        color: rgba(0, 220, 255, 0.55);
-        font-weight: 400;
-        margin-top: 1px;
+    .hs-item { display: flex; align-items: baseline; gap: 6px; white-space: nowrap; }
+    .hs-item b {
+        font-size: 16px;
+        font-weight: 700;
+        color: #00f0ff;
+        text-shadow: 0 0 8px rgba(0, 240, 255, 0.7);
+        font-family: 'Courier New', monospace;
     }
-    .header-stats { display: flex; gap: 22px; align-items: center; }
-    .hs-item { display: flex; align-items: baseline; gap: 6px; }
-    .hs-item b { font-size: 18px; color: #00f0ff; font-family: 'Courier New', monospace; text-shadow: 0 0 8px rgba(0, 240, 255, 0.6); }
+    .hs-item .hs-unit { font-size: 10px; font-style: normal; margin-left: 1px; }
     .hs-item span { font-size: 11px; color: #9fc6e8; }
-    .header-right { display: flex; align-items: center; gap: 10px; }
+
+    /* 窄屏时顶栏指标紧凑化，避免与居中标题拥挤 */
+    @media (max-width: 1500px) {
+        .header-stats { gap: 12px; left: 12px; }
+        .hs-item b { font-size: 14px; }
+        .hs-item span { font-size: 10px; }
+    }
+    .sys-title {
+        font-size: 21px;
+        font-weight: 700;
+        letter-spacing: 3px;
+        background: linear-gradient(180deg, #ffffff, #7fd4ff);
+        -webkit-background-clip: text;
+        background-clip: text;
+        -webkit-text-fill-color: transparent;
+        filter: drop-shadow(0 0 8px rgba(0, 220, 255, 0.5));
+        /* 标题光泽缓慢扫过 */
+        background-size: 200% 100%;
+        animation: title-sheen-move 5s ease-in-out infinite;
+    }
+    @keyframes title-sheen-move {
+        0%, 100% { background-position: 0% 0; }
+        50% { background-position: 100% 0; }
+    }
+    .sub-title {
+        margin-left: 12px;
+        font-size: 10px;
+        font-weight: 400;
+        letter-spacing: 2px;
+        color: rgba(0, 220, 255, 0.5);
+    }
     .sim-time {
         font-size: 13px;
         color: #7fd4ff;
         font-family: 'Courier New', monospace;
-        text-shadow: 0 0 6px rgba(0, 180, 255, 0.5);
     }
-    /* 仿真倍速控制 */
-    .speed-ctrl { display: flex; align-items: center; gap: 6px; font-family: 'Courier New', monospace; }
-    .speed-label { font-size: 12px; color: #9fc6e8; }
-    .speed-input {
-        width: 52px; height: 24px;
+    /* 仿真倍速控件（青色 HUD 风格，与 sim-time / fullscreen-btn 一致） */
+    .speed-ctrl {
+        display: flex;
+        align-items: center;
+        gap: 5px;
+        height: 26px;
         padding: 0 6px;
-        background: rgba(0, 220, 255, 0.06);
-        border: 1px solid rgba(0, 220, 255, 0.3);
+        background: rgba(0, 220, 255, 0.08);
+        border: 1px solid rgba(0, 220, 255, 0.35);
         border-radius: 4px;
+    }
+    .speed-label { font-size: 11px; color: #9fc6e8; letter-spacing: 1px; }
+    .speed-input {
+        width: 48px;
+        height: 18px;
+        padding: 0 4px;
+        background: rgba(0, 220, 255, 0.05);
+        border: 1px solid rgba(0, 220, 255, 0.25);
+        border-radius: 3px;
         color: #00f0ff;
         font-size: 12px;
         font-family: 'Courier New', monospace;
         text-align: center;
         outline: none;
+        /* 隐藏 number 输入框的上下箭头 */
+        -moz-appearance: textfield;
     }
+    .speed-input::-webkit-outer-spin-button, .speed-input::-webkit-inner-spin-button { -webkit-appearance: none; }
     .speed-input:focus { border-color: rgba(0, 220, 255, 0.6); box-shadow: 0 0 6px rgba(0, 220, 255, 0.3); }
-    .speed-input::-webkit-inner-spin-button { opacity: 1; }
     .speed-btn {
-        height: 24px; padding: 0 10px;
+        height: 18px;
+        padding: 0 8px;
+        font-size: 11px;
+        color: #00dcff;
         background: rgba(0, 220, 255, 0.12);
         border: 1px solid rgba(0, 220, 255, 0.4);
-        border-radius: 4px;
-        color: #00dcff;
-        font-size: 12px;
+        border-radius: 3px;
         cursor: pointer;
         transition: all 0.25s;
     }
     .speed-btn:hover { background: rgba(0, 220, 255, 0.25); box-shadow: 0 0 8px rgba(0, 220, 255, 0.4); }
     .speed-preset {
-        font-size: 11px;
+        font-size: 10px;
+        font-family: 'Courier New', monospace;
         color: #7fd4ff;
-        padding: 2px 6px;
-        border: 1px solid rgba(0, 220, 255, 0.25);
-        border-radius: 3px;
+        padding: 0 4px;
+        border-radius: 2px;
         cursor: pointer;
-        transition: all 0.2s;
+        transition: all 0.25s;
     }
-    .speed-preset:hover { border-color: rgba(0, 220, 255, 0.6); }
-    .speed-preset.active {
-        color: #04101f;
-        background: #00dcff;
-        border-color: #00dcff;
-        box-shadow: 0 0 8px rgba(0, 220, 255, 0.6);
+    .speed-preset:hover { color: #00f0ff; background: rgba(0, 220, 255, 0.15); }
+    .speed-preset.active { color: #050a1e; background: #00dcff; box-shadow: 0 0 6px rgba(0, 220, 255, 0.6); }
+    /* 窄屏时隐藏快捷档位，仅保留输入框 + 设定按钮 */
+    @media (max-width: 1500px) {
+        .speed-preset { display: none; }
     }
+    .header-right {
+        position: absolute;
+        right: 16px;
+        top: 50%;
+        transform: translateY(-50%);
+        display: flex;
+        align-items: center;
+        gap: 10px;
+    }
+    /* 全屏展示按钮（演示模式） */
     .fullscreen-btn {
         display: flex;
         align-items: center;
