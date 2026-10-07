@@ -119,6 +119,12 @@ const router = createRouter({
           meta: { title: "告警中心" },
           component: () => import("@/views/AlertCenter.vue"),
         },
+        {
+          path: "replay",
+          name: "replay",
+          meta: { title: "态势回放" },
+          component: () => import("@/views/ReplayView.vue"),
+        },
         
       ],
     },

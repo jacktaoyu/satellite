@@ -1,8 +1,8 @@
-// echarts 按需装配：项目实际只用到 饼图/柱状图/折线图/雷达图 + 常用组件，
+// echarts 按需装配：项目实际用到 饼图/柱状图/折线图/雷达图/自定义系列（甘特图） + 常用组件，
 // 全量 import 'echarts' 会打入 1MB+ 的 vendor 包，按需引入后体积显著下降。
 // 注意：新增图表类型时务必在此补充对应的 Chart 注册，否则该图表静默不渲染。
 import * as echarts from 'echarts/core';
-import { PieChart, BarChart, LineChart, RadarChart } from 'echarts/charts';
+import { PieChart, BarChart, LineChart, RadarChart, CustomChart } from 'echarts/charts';
 import {
   GridComponent,
   TooltipComponent,
@@ -14,7 +14,7 @@ import { CanvasRenderer } from 'echarts/renderers';
 import { LinearGradient } from 'echarts/lib/util/graphic';
 
 echarts.use([
-  PieChart, BarChart, LineChart, RadarChart,
+  PieChart, BarChart, LineChart, RadarChart, CustomChart,
   GridComponent, TooltipComponent, LegendComponent, TitleComponent, DataZoomComponent,
   CanvasRenderer,
 ]);
