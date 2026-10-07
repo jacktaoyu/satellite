@@ -228,6 +228,34 @@
         </el-card>
       </el-tab-pane>
     </el-tabs>
+
+    <!-- 评估详情抽屉：点击表格“详情”展开该行完整指标 -->
+    <el-drawer v-model="detailVisible" title="算法评估详情" size="420px">
+      <template v-if="detailRow">
+        <el-descriptions :column="1" border>
+          <el-descriptions-item label="算法">
+            <el-tag :type="getAlgorithmType(detailRow.algorithm)">{{ detailRow.algorithm }}</el-tag>
+          </el-descriptions-item>
+          <el-descriptions-item label="任务完成率">
+            <span :class="getRateClass(detailRow.completionRate)">{{ detailRow.completionRate }}%</span>
+          </el-descriptions-item>
+          <el-descriptions-item label="资源利用率">{{ detailRow.resourceUtilization }}%</el-descriptions-item>
+          <el-descriptions-item label="成像质量">{{ detailRow.imagingQuality }}%</el-descriptions-item>
+          <el-descriptions-item label="电量消耗">{{ detailRow.batteryCost }} Wh</el-descriptions-item>
+          <el-descriptions-item label="存储消耗">{{ detailRow.storageCost }} GB</el-descriptions-item>
+          <el-descriptions-item label="规划耗时">{{ detailRow.executionTime }} s</el-descriptions-item>
+          <el-descriptions-item label="评估时间">{{ detailRow.timestamp }}</el-descriptions-item>
+        </el-descriptions>
+        <div class="detail-summary">
+          <div class="ds-title">指标说明</div>
+          <div class="ds-item">完成率：规划满足的任务数占任务总数比例，越高越好。</div>
+          <div class="ds-item">资源利用率：卫星载荷/存储/电量等资源的综合占用水平。</div>
+          <div class="ds-item">成像质量：所选卫星分辨率与任务需求的匹配程度。</div>
+          <div class="ds-item">电量/存储消耗：执行全部已规划任务的估算总开销。</div>
+          <div class="ds-item">规划耗时：本轮任务规划算法的实际运行时长。</div>
+        </div>
+      </template>
+    </el-drawer>
   </div>
 </template>
 
@@ -261,13 +289,15 @@ export default {
       stats: {
         completionRate: 0,
         resourceUtilization: 0,
-        avgResponseTime: '0ms',
+        avgResponseTime: '--',
         planningCount: 0
       },
       selectedAlgorithm: 'greedy',
       clusterOptions: [],
       selectedCluster: '',
       evaluationData: [],
+      detailVisible: false,  // 评估详情抽屉显隐
+      detailRow: null,       // 当前查看详情的评估行
       evaluationRaw: [],
       clusterData: [],
       clusterLoaded: false,
@@ -423,7 +453,10 @@ export default {
           this.stats = {
             completionRate: Math.round((latest.task_satisfaction || 0) * 100),
             resourceUtilization: Math.round(avgUtil * 100),
-            avgResponseTime: `${avgDuration.toFixed(2)}s`,
+            // 耗时单位自适应：小于 1 秒显示毫秒，避免 “0ms”/“s” 与标签不一致
+            avgResponseTime: avgDuration < 1
+              ? `${Math.round(avgDuration * 1000)}ms`
+              : `${avgDuration.toFixed(2)}s`,
             planningCount: evaluation.length
           };
         }
@@ -754,9 +787,10 @@ export default {
       return 'rate-normal';
     },
 
-    // 查看详情
+    // 查看详情：弹出抽屉展示该行完整评估指标
     viewDetail(row) {
-      ElMessage.info(`查看 ${row.algorithm} 的详细评估数据`);
+      this.detailRow = row;
+      this.detailVisible = true;
     },
 
     // 执行导出
@@ -1015,5 +1049,25 @@ export default {
     flex-direction: column;
     align-items: flex-start;
   }
+}
+
+/* 评估详情抽屉：指标说明区 */
+.detail-summary {
+  margin-top: 18px;
+  padding: 12px 14px;
+  background: rgba(0, 220, 255, 0.04);
+  border: 1px solid rgba(0, 220, 255, 0.15);
+  border-radius: 6px;
+}
+.detail-summary .ds-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #00dcff;
+  margin-bottom: 8px;
+}
+.detail-summary .ds-item {
+  font-size: 12px;
+  line-height: 1.8;
+  color: #9fc6e8;
 }
 </style>
