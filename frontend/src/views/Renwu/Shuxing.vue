@@ -274,7 +274,7 @@
           <el-select v-if="resolutionOptions.length" v-model="taskForm.resolution" placeholder="请选择分辨率" style="width: 100%">
             <el-option v-for="r in resolutionOptions" :key="r" :label="r + ' m'" :value="Number(r)" />
           </el-select>
-          <el-input-number v-else v-model="taskForm.resolution" :min="0.1" :max="50" :step="0.1" style="width: 100%" />
+          <el-input-number v-else v-model="taskForm.resolution" :min="0.1" :max="100" :step="0.1" style="width: 100%" />
         </el-form-item>
         <el-form-item label="时间范围">
           <el-date-picker
