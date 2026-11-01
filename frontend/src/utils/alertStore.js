@@ -3,13 +3,14 @@
 import { reactive, readonly } from 'vue';
 
 const state = reactive({
-  alerts: [],          // { time, level, category, message, acknowledged, _local? }
+  alerts: [],          // { id?, time, level, category, message, acknowledged, _local? }
   loaded: false,       // 是否已从后端拉取过
 });
 
 let pollTimer = null;
+let fetchPromise = null;
 
-// 本地追加一条告警（前端产生的即时事件，如低电量），并尝试同步到后端日志
+// 本地追加一条告警（仅当前浏览器会话有效，后端告警由 OCC 统一记录）
 export function pushLocalAlert(level, category, message) {
   state.alerts.push({
     time: new Date().toLocaleString('sv-SE').replace('T', ' '),
@@ -18,16 +19,26 @@ export function pushLocalAlert(level, category, message) {
   if (state.alerts.length > 200) state.alerts.splice(0, state.alerts.length - 200);
 }
 
-// 从后端拉取告警并合并（本地 _local 条目保留在前）
-export async function fetchAlerts(authFetch) {
-  try {
-    const r = await authFetch('/satellites/alerts');
-    const d = await r.json();
-    const remote = Array.isArray(d.alerts) ? d.alerts : [];
-    const locals = state.alerts.filter(a => a._local);
-    state.alerts = [...locals, ...remote];
-    state.loaded = true;
-  } catch (e) { /* 后端未就绪时静默 */ }
+// 从后端拉取告警并合并；并发调用共享同一个请求，避免慢请求与轮询重叠
+export function fetchAlerts(authFetch) {
+  if (fetchPromise) return fetchPromise;
+  fetchPromise = (async () => {
+    try {
+      const r = await authFetch('/satellites/alerts');
+      if (!r.ok) return false;
+      const d = await r.json();
+      const remote = Array.isArray(d.alerts) ? d.alerts : [];
+      const locals = state.alerts.filter(a => a._local);
+      state.alerts = [...locals, ...remote];
+      state.loaded = true;
+      return true;
+    } catch (e) {
+      return false;
+    } finally {
+      fetchPromise = null;
+    }
+  })();
+  return fetchPromise;
 }
 
 // 启动轮询（5s），页面卸载时由调用方 stopAlertPoll
@@ -40,21 +51,26 @@ export function stopAlertPoll() {
   if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
 }
 
-// 确认告警：index=-1 全部确认（仅后端条目；本地条目直接置位）
-export async function ackAlert(authFetch, index) {
+// 按稳定 ID 确认告警；all=true 确认全部后端条目。仅在请求成功后更新共享状态
+export async function ackAlert(authFetch, { id = null, all = false } = {}) {
   try {
-    await authFetch('/satellites/alerts/ack', {
+    const r = await authFetch('/satellites/alerts/ack', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ index }),
+      body: JSON.stringify(all ? { all: true } : { id }),
     });
-    if (index === -1) state.alerts.forEach(a => { a.acknowledged = true; });
-  } catch (e) { }
+    if (!r.ok) return false;
+    if (all) state.alerts.forEach(a => { a.acknowledged = true; });
+    return true;
+  } catch (e) {
+    return false;
+  }
 }
 
 export function useAlertStore() {
   return readonly(state);
 }
+
 export function useAlertStoreMutable() {
   return state;
 }
