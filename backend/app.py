@@ -1,10 +1,9 @@
 import os
 import secrets
-import shutil
 import threading
 from datetime import datetime, timedelta, timezone
 from threading import Thread
-from flask import Flask, request, jsonify, send_file
+from flask import Flask, g, request, jsonify, send_file
 from waitress import serve
 from sqlalchemy import inspect
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -20,6 +19,7 @@ from config import TLE, sat_parms
 from database import db
 from model.AuthTokenModel import AuthTokenModel
 from model.UserModel import UserModel
+from utils.auth import require_admin
 from flask_cors import CORS
 
 app = Flask(__name__)
@@ -57,15 +57,11 @@ def initialize_system():
 
     print("开始初始化系统...")
 
-    # 删除之前的图片文件夹，并重新创建
+    # 启动时只补齐目录，保留历史任务截图和调度输出；清理由显式维护操作负责
     image_dir = os.path.join(os.path.dirname(__file__), 'static', 'image')
     scheduler_dir = os.path.join(os.path.dirname(__file__), 'output_plans')
-    if os.path.exists(image_dir):
-        shutil.rmtree(image_dir)
-        os.makedirs(image_dir)
-    if os.path.exists(scheduler_dir):
-        shutil.rmtree(scheduler_dir)
-        os.makedirs(scheduler_dir)
+    os.makedirs(image_dir, exist_ok=True)
+    os.makedirs(scheduler_dir, exist_ok=True)
 
     with app.app_context():
         # 初始化运控中心，传递app实例（加锁保护模块级标志的写入）
@@ -146,11 +142,11 @@ def revoke_user_tokens(username):
 
 
 def parse_user_type(value):
-    """容错解析 user_type，脏数据按普通用户(1)处理，避免 int() 抛异常导致 500"""
+    """容错解析 user_type，脏数据按普通用户处理，避免异常角色被误判为管理员。"""
     try:
-        return int(value or 1)
+        return int(value or 0)
     except (TypeError, ValueError):
-        return 1
+        return 0
 
 
 # 无需登录即可访问的白名单路径
@@ -182,6 +178,7 @@ def global_auth_check():
     username = check_token(request.headers.get('Ac-Token'))
     if username is None:
         return jsonify({"meta": {"status": 401, "message": "未登录或登录已过期"}}), 401
+    g.username = username
     # 角色鉴权：管理员专属操作仅允许 user_type=1 的账号调用
     # 按路径边界匹配（精确相等或以“前缀+/”开头），避免 /tasks/addTasksWhatever 之类误伤
     if any(path == prefix or path.startswith(prefix.rstrip('/') + '/') for prefix in ADMIN_PATH_PREFIXES):
@@ -473,6 +470,7 @@ def get_network_parameters():
 
 # 切换运行模式：自主运行 / 程序控制（手动）
 @app.route('/changeAutoRun', methods=['POST'])
+@require_admin
 def change_auto_run():
     form = request.get_json(silent=True)
     auto = form.get('auto') if isinstance(form, dict) else None
@@ -503,6 +501,7 @@ def get_constraint_config():
 
 # 更新星簇级约束项配置（启用状态与阈值，在规划输入装配处生效）
 @app.route('/constraintConfig', methods=['POST'])
+@require_admin
 def set_constraint_config():
     form = request.get_json(silent=True)
     items = form.get('constraints') if isinstance(form, dict) else None
@@ -584,6 +583,7 @@ def export_tle_file():
 
 # 改变时间倍速
 @app.route('/changeTimeMultiple', methods=['POST'])
+@require_admin
 def accelerate_time():
     data = request.form.get("time_multiple")
     try:
@@ -735,8 +735,8 @@ def login():
 @app.route('/updatePassword', methods=['POST'])
 def update_password():
     form = request.json
-    if not form or not form.get("username") or not form.get("password") or not form.get("confirmPassword"):
-        return jsonify({"meta": {"status": 400, "message": "用户名、新密码和确认密码不能为空"}}), 400
+    if not form or not form.get("username") or not form.get("oldPassword") or not form.get("password") or not form.get("confirmPassword"):
+        return jsonify({"meta": {"status": 400, "message": "用户名、旧密码、新密码和确认密码不能为空"}}), 400
     username = form["username"]
     password = form["password"]
     confirm_password = form["confirmPassword"]
@@ -752,13 +752,12 @@ def update_password():
         return jsonify({"meta": {"status": 401, "message": "只能修改本人密码"}}), 401
     user = UserModel.query.filter_by(name=username).first()
     if user:
-        # 旧密码可选：请求中携带 oldPassword 时才校验
+        # 修改密码必须验证旧密码，降低有效会话被盗后被直接改密的风险
         # 只允许与哈希比对：旧明文账号在登录时已自动升级为哈希（未升级的旧账号需先登录一次）
-        old_password = form.get("oldPassword")
-        if old_password is not None:
-            old_ok = user.password.startswith(('scrypt:', 'pbkdf2:')) and check_password_hash(user.password, old_password)
-            if not old_ok:
-                return jsonify({"meta": {"status": 400, "message": "旧密码错误"}}), 400
+        old_password = form["oldPassword"]
+        old_ok = user.password.startswith(('scrypt:', 'pbkdf2:')) and check_password_hash(user.password, old_password)
+        if not old_ok:
+            return jsonify({"meta": {"status": 400, "message": "旧密码错误"}}), 400
         user.password = generate_password_hash(password)
         db.session.commit()
         # 改密成功后使该用户所有已签发 token 失效，强制重新登录
@@ -798,6 +797,7 @@ def get_system_state():
 
 # 更改默认时间倍速
 @app.route('/setDefaultTimeMultiple', methods=['POST'])
+@require_admin
 def set_default_time_multiple():
     default_time_multiple = request.args.get("default_time_multiple", type=int)
     print(f"接收到默认时间倍速: {default_time_multiple}")
