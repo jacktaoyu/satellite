@@ -8,7 +8,7 @@
           <span class="cb-sub">STATE REPLAY</span>
         </div>
         <div class="cb-info" v-if="snapshots.length > 0">
-          <span>共 {{ snapshots.length }} 帧</span>
+          <span>已加载 {{ snapshots.length }}/{{ totalCount }} 帧</span>
           <span class="cb-range">{{ snapshots[0].time }} ~ {{ snapshots[snapshots.length - 1].time }}</span>
         </div>
         <div class="cb-actions">
@@ -16,7 +16,8 @@
                      :disabled="snapshots.length === 0" @click="togglePlay">
             {{ isPlaying ? '暂停' : '播放' }}
           </el-button>
-          <el-button size="small" :icon="Refresh" @click="loadSnapshots">刷新</el-button>
+          <el-button v-if="hasMore" size="small" :disabled="isPlaying" :loading="loading" @click="loadSnapshots(true)">加载更早</el-button>
+          <el-button size="small" :icon="Refresh" :loading="loading" @click="loadSnapshots(false)">刷新</el-button>
         </div>
       </div>
       <!-- 帧滑块 -->
@@ -42,7 +43,7 @@
         <el-table-column label="电量 (Wh)" min-width="160" sortable :sort-by="(r) => r.battery">
           <template #default="scope">
             <div class="batt-cell">
-              <el-progress :percentage="batteryPct(scope.row.battery)" :stroke-width="8"
+              <el-progress :percentage="batteryPct(scope.row.battery, scope.row.maxBattery)" :stroke-width="8"
                            :color="batteryColor(scope.row.battery)" :show-text="false" class="batt-bar" />
               <span class="batt-num">{{ scope.row.battery }}</span>
             </div>
@@ -66,7 +67,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted } from 'vue';
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
 import { ElMessage } from 'element-plus';
 import { VideoPlay, VideoPause, Refresh } from '@element-plus/icons-vue';
 import { authFetch } from '@/utils/authFetch.js';
@@ -74,6 +75,10 @@ import { authFetch } from '@/utils/authFetch.js';
 // 态势回放：读取后端 state_snapshots（每 5 秒一帧，最多 720 帧），滑块/播放回看历史卫星状态
 const snapshots = ref([]);
 const loaded = ref(false);
+const loading = ref(false);
+const hasMore = ref(false);
+const totalCount = ref(0);
+const REPLAY_PAGE_SIZE = 120;
 const frameIndex = ref(0);
 const isPlaying = ref(false);
 const keyword = ref('');
@@ -92,6 +97,7 @@ const tableRows = computed(() => {
   return Object.entries(snap.sats).map(([name, s]) => ({
     name,
     battery: s.battery ?? 0,
+    maxBattery: s.maxBattery ?? 0,
     storage: s.storage ?? 0,
     lat: s.lat,
     lng: s.lng,
@@ -109,9 +115,10 @@ const pagedRows = computed(() =>
   filteredRows.value.slice((page.value - 1) * pageSize, page.value * pageSize)
 );
 
-// 电量进度条按初始电量 3000Wh 估算百分比，仅作可视化参考
-function batteryPct(b) {
-  return Math.max(0, Math.min(100, Math.round((b / 3000) * 100)));
+// 使用卫星真实电池容量计算百分比；容量缺失时显示 0，不再按固定 3000Wh 估算
+function batteryPct(b, maxBattery) {
+  if (!Number.isFinite(maxBattery) || maxBattery <= 0) return 0;
+  return Math.max(0, Math.min(100, Math.round((b / maxBattery) * 100)));
 }
 function batteryColor(b) {
   if (b < 20) return '#ff6b6b';
@@ -144,22 +151,47 @@ function togglePlay() {
   }
 }
 
-async function loadSnapshots() {
+async function loadSnapshots(older = false) {
+  if (loading.value) return;
+  if (isPlaying.value) togglePlay();
+  loading.value = true;
   try {
-    const r = await authFetch('/satellites/replay/snapshots?index=-1');
+    const params = new URLSearchParams({ index: '-1', limit: String(REPLAY_PAGE_SIZE) });
+    if (older && snapshots.value.length > 0) {
+      params.set('before', String(snapshots.value[0].seq));
+    }
+    const r = await authFetch(`/satellites/replay/snapshots?${params}`);
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
     const d = await r.json();
-    snapshots.value = Array.isArray(d.snapshots) ? d.snapshots : [];
-    loaded.value = true;
-    if (snapshots.value.length > 0) {
-      frameIndex.value = snapshots.value.length - 1;  // 默认定位到最新帧
+    const incoming = Array.isArray(d.snapshots) ? d.snapshots : [];
+    if (older) {
+      // 前插历史帧后同步偏移当前下标，保持正在查看的帧不变
+      snapshots.value = [...incoming, ...snapshots.value];
+      frameIndex.value += incoming.length;
+    } else {
+      snapshots.value = incoming;
+      if (incoming.length > 0) frameIndex.value = incoming.length - 1;
+      else frameIndex.value = 0;
       page.value = 1;
     }
+    totalCount.value = Number.isInteger(d.count) ? d.count : snapshots.value.length;
+    hasMore.value = !!d.has_more;
+    loaded.value = true;
   } catch (e) {
     ElMessage.warning('回放快照加载失败，请确认后端服务已启动');
+  } finally {
+    loading.value = false;
   }
 }
 
-onMounted(loadSnapshots);
+// 搜索时回到第一页；帧数据量变化后，避免停留在超出结果范围的页码
+watch(keyword, () => { page.value = 1; });
+watch(() => filteredRows.value.length, () => {
+  const maxPage = Math.max(1, Math.ceil(filteredRows.value.length / pageSize));
+  if (page.value > maxPage) page.value = maxPage;
+});
+
+onMounted(() => loadSnapshots(false));
 onUnmounted(() => { if (playTimer) clearInterval(playTimer); });
 </script>
 

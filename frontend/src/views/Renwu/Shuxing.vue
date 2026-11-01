@@ -359,6 +359,7 @@
 <script>
 import { ElMessage, ElMessageBox } from 'element-plus';
 import echarts from '@/utils/echarts.js';
+import { utcToTimestamp } from '@/utils/time.js';
 import { 
   Search, Refresh, Plus, View, Delete, Edit, VideoPlay, VideoPause, Download, CircleClose, Close
 } from '@element-plus/icons-vue';
@@ -652,8 +653,8 @@ export default {
             name: t.task_name || `任务${t.id}`,
             sat: t.satellite_name || '-',
             status: t.status || '',
-            start: new Date(String(t.startTime).replace(' ', 'T')).getTime(),
-            end: new Date(String(t.endTime).replace(' ', 'T')).getTime()
+            start: utcToTimestamp(t.startTime),
+            end: utcToTimestamp(t.endTime)
           }))
           .filter((r) => !isNaN(r.start) && !isNaN(r.end) && r.end > r.start)
           .sort((a, b) => a.start - b.start)

@@ -3,6 +3,7 @@ import random
 import time
 import math
 import uuid
+import logging
 from datetime import datetime, timezone, timedelta
 from threading import Thread, RLock
 from queue import Queue
@@ -20,6 +21,9 @@ from utils.time_util import get_now_time_from_start
 from flask import current_app
 from contextlib import nullcontext
 from skyfield.api import wgs84
+
+
+logger = logging.getLogger(__name__)
 
 
 def _local_naive_to_utc(dt):
@@ -83,8 +87,12 @@ class OperationsControlCenter:
         self.cluster_data = []  # 星簇数据
         self.planning_results = []  # 规划结果
         self.is_planning = False  # 是否正在规划（供前端“规划中”提示；与 is_planed 语义相反且独立）
-        self.alert_log = []       # 告警中心：{time, level, category, message, acknowledged}，最多保留 200 条
-        self.state_snapshots = [] # 运行回放：每轮主循环的卫星状态快照（时间/电量/固存/位置），最多 720 条（约1小时）
+        # 告警/回放由 OCC 后台线程写入、Flask 请求线程读取；序号在滚动截断后仍保持稳定
+        self.runtime_log_lock = RLock()
+        self._alert_seq = 0
+        self._snapshot_seq = 0
+        self.alert_log = []       # 告警中心：{id, time, level, category, message, acknowledged}，最多保留 200 条
+        self.state_snapshots = [] # 运行回放：每轮主循环的卫星状态快照（序号/时间/电量/固存/位置），最多 720 条（约1小时）
 
         # 是否使用随机化方式初始化卫星
         self.is_random = False  # 是否使用随机化方式初始化卫星
@@ -901,19 +909,22 @@ class OperationsControlCenter:
 
     # ===== 告警中心 / 运行回放 辅助方法 =====
     def push_alert(self, level, category, message):
-        """记录一条告警（level: info/warn/alarm，category: 任务/卫星/系统），最多保留 200 条"""
+        """记录一条带稳定 ID 的告警，最多保留 200 条。"""
         try:
-            self.alert_log.append({
-                'time': self.now_time.strftime("%Y-%m-%d %H:%M:%S"),
-                'level': level,
-                'category': category,
-                'message': str(message),
-                'acknowledged': False,
-            })
-            if len(self.alert_log) > 200:
-                self.alert_log = self.alert_log[-200:]
+            with self.runtime_log_lock:
+                self._alert_seq += 1
+                self.alert_log.append({
+                    'id': self._alert_seq,
+                    'time': self.now_time.strftime("%Y-%m-%d %H:%M:%S"),
+                    'level': level,
+                    'category': category,
+                    'message': str(message),
+                    'acknowledged': False,
+                })
+                if len(self.alert_log) > 200:
+                    self.alert_log = self.alert_log[-200:]
         except Exception:
-            pass
+            logger.exception("记录告警失败")
 
     def _record_snapshot(self):
         """每轮主循环记录一次卫星状态快照（供运行回放），最多保留 720 条（约1小时×倍速20）"""
@@ -927,6 +938,7 @@ class OperationsControlCenter:
                     pos = getattr(sat, 'position', None)
                     sats[name] = {
                         'battery': round(getattr(sat, 'battery', 0), 1),
+                        'maxBattery': round(getattr(sat, 'battery_capacity', 0), 1),
                         'storage': round(getattr(sat, 'storage', 0), 2),
                         'lat': sp[0],
                         'lng': sp[1],
@@ -934,14 +946,17 @@ class OperationsControlCenter:
                     }
                 except Exception:
                     continue
-            self.state_snapshots.append({
-                'time': self.now_time.strftime("%Y-%m-%d %H:%M:%S"),
-                'sats': sats,
-            })
-            if len(self.state_snapshots) > 720:
-                self.state_snapshots = self.state_snapshots[-720:]
+            with self.runtime_log_lock:
+                self._snapshot_seq += 1
+                self.state_snapshots.append({
+                    'seq': self._snapshot_seq,
+                    'time': self.now_time.strftime("%Y-%m-%d %H:%M:%S"),
+                    'sats': sats,
+                })
+                if len(self.state_snapshots) > 720:
+                    self.state_snapshots = self.state_snapshots[-720:]
         except Exception:
-            pass
+            logger.exception("记录运行回放快照失败")
 
     # 规划任务
     def planning_tasks(self, tasks, model):
@@ -1042,7 +1057,7 @@ class OperationsControlCenter:
                 # 遍历任务，为每个任务分配卫星
                 for task in tasks:
                     # 为任务计算时间窗口
-                    # 判断任务是否有传感器类型，如果有，则只为该类型的卫星分配时间窗口
+                    # 判断是否有传感器类型，如果有，则只为该类型的卫星分配时间窗口
                     if task.sensor_type:
                         for sat_name, sat in self.satellite_network.satellites.items():
                             # 检查卫星是否满足任务要求

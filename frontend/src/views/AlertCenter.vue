@@ -117,24 +117,29 @@ function levelText(l) { return l === 'alarm' ? '严重' : l === 'warn' ? '警告
 
 async function load() {
   loading.value = true;
-  await fetchAlerts(authFetch);
+  const ok = await fetchAlerts(authFetch);
   loading.value = false;
+  if (!ok) ElMessage.warning('告警加载失败，请稍后重试');
 }
 
 async function ackOne(row) {
   if (row._local) { row.acknowledged = true; return; }
-  // 后端下标 = 在 store.alerts（非 _local）中的顺序需要映射回后端顺序（后端按时间正序存）
-  const remoteList = store.alerts.filter(a => !a._local);
-  const idxInRemote = remoteList.indexOf(row); // 倒序数组中的位置
-  if (idxInRemote < 0) return;
-  const backendIdx = remoteList.length - 1 - idxInRemote; // 还原为正序下标
-  await ackAlert(authFetch, backendIdx);
-  row.acknowledged = true;
+  const ok = await ackAlert(authFetch, { id: row.id });
+  if (ok) {
+    row.acknowledged = true;
+    ElMessage.success('告警已确认');
+  } else {
+    ElMessage.error('确认失败，告警可能已过期，请刷新后重试');
+  }
 }
 
 async function ackAll() {
-  await ackAlert(authFetch, -1);
-  ElMessage.success('全部告警已确认');
+  const ok = await ackAlert(authFetch, { all: true });
+  if (ok) {
+    ElMessage.success('全部告警已确认');
+  } else {
+    ElMessage.error('全部确认失败，请稍后重试');
+  }
 }
 
 onMounted(() => { load(); startAlertPoll(authFetch); });
