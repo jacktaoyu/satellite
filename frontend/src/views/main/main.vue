@@ -96,6 +96,10 @@
           <el-input v-model="pwdForm.username" placeholder="请输入新账号..." prefix-icon="User" />
         </el-form-item>
         <el-form-item>
+          <el-input v-model="pwdForm.oldPassword" type="password" placeholder="请输入当前密码..." prefix-icon="Lock"
+            show-password />
+        </el-form-item>
+        <el-form-item>
           <el-input v-model="pwdForm.password" type="password" placeholder="请输入新密码..." prefix-icon="Lock"
             show-password />
         </el-form-item>
@@ -134,6 +138,7 @@ export default {
       pwdSubmitting: false,
       pwdForm: {
         username: "",
+        oldPassword: "",
         password: "",
         confirmPassword: "",
       },
@@ -155,14 +160,15 @@ export default {
     openPwdDialog() {
       // 用户名默认填入当前登录用户名，密码每次清空
       this.pwdForm.username = localStorage.getItem("userInfo") || this.nickname || "";
+      this.pwdForm.oldPassword = "";
       this.pwdForm.password = "";
       this.pwdForm.confirmPassword = "";
       this.pwdDialogVisible = true;
     },
     async submitPwd() {
-      const { username, password, confirmPassword } = this.pwdForm;
-      if (!username || !password || !confirmPassword) {
-        this.$message.warning('用户名、新密码和确认密码不能为空');
+      const { username, oldPassword, password, confirmPassword } = this.pwdForm;
+      if (!username || !oldPassword || !password || !confirmPassword) {
+        this.$message.warning('用户名、旧密码、新密码和确认密码不能为空');
         return;
       }
       if (password !== confirmPassword) {
@@ -171,12 +177,12 @@ export default {
       }
       this.pwdSubmitting = true;
       try {
-        await this.$request.post('/updatePassword', { username, password, confirmPassword });
+        await this.$request.post('/updatePassword', { username, oldPassword, password, confirmPassword });
         this.pwdDialogVisible = false;
         // 后端改密成功后会吊销该用户全部 token，当前会话已失效，必须强制重新登录，
         // 否则用户停留在系统内、下一次请求才被 401 弹走，体验割裂
         this.$message.success('密码修改成功，请重新登录');
-        localStorage.clear();
+        ['token', 'isAdmin', 'userInfo', 'userInfoid', 'nickname'].forEach(key => localStorage.removeItem(key));
         this.$router.push('/login');
       } catch (err) {
         // 失败信息（含后端 400 的 meta.message）由 request.js 响应拦截器统一弹出
@@ -185,7 +191,7 @@ export default {
       }
     },
     quitLogin() {
-      localStorage.clear()
+      ['token', 'isAdmin', 'userInfo', 'userInfoid', 'nickname'].forEach(key => localStorage.removeItem(key))
       this.$router.push('/login')
       this.$message.success('退出成功')
     }
