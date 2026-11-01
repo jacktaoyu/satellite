@@ -223,6 +223,10 @@
   const showEventBar = ref(true);      // 常用功能：实时事件栏开关
   const satInfoMap = ref({});          // getAllSatelliteInfo 结果（key: satName）
   let hudTimer = null;
+  let hudRefreshing = false;
+  let hudAbortController = null;
+  let czmlAbortController = null;
+  let pageDisposed = false;
   const prevTaskStatus = {};        // 任务状态快照，用于比对生成事件
   const lowBatteryWarned = new Set(); // 已报过低电量告警的卫星
   let lastSatisfaction = null;      // 上一次满足率，用于生成规划完成事件
@@ -297,75 +301,86 @@
 
   // 面板数据轮询
   async function refreshHud() {
+    if (hudRefreshing || pageDisposed || document.hidden) return;
+    hudRefreshing = true;
+    const controller = new AbortController();
+    hudAbortController = controller;
+    const signal = controller.signal;
     try {
-      const r = await authFetch('/getCurrentTime');
-      const d = await r.json();
-      // 后端返回 UTC，转本地时区显示（与系统设置页提交的本地时间一致）
-      simTime.value = utcToLocalString(d.current_time);
-    } catch (e) { /* 后端未就绪时静默 */ }
-    try {
-      const r = await authFetch('/satellites/getAllSatellites', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}'
-      });
-      const d = await r.json();
-      satList.value = Array.isArray(d) ? d : [];
-      updatePayloadChart();
-      checkLowBattery(satList.value);
-    } catch (e) { }
-    try {
-      const r = await authFetch('/satellites/getAllSatelliteInfo', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}'
-      });
-      const d = await r.json();
-      if (Array.isArray(d)) {
-        const m = {};
-        d.forEach(s => { m[s.satName] = s; });
-        satInfoMap.value = m;
-        // 同步刷新链路连接表（星间链路/星地链路 CallbackProperty 实时读取）
-        d.forEach(s => {
-          linkTargetMap[s.satName] = { gs: s.connecting_ground_station, geo: s.connecting_geo };
+      try {
+        const r = await authFetch('/getCurrentTime', { signal });
+        const d = await r.json();
+        // 后端返回 UTC，转本地时区显示（与系统设置页提交的本地时间一致）
+        simTime.value = utcToLocalString(d.current_time);
+      } catch (e) { /* 后端未就绪时静默 */ }
+      try {
+        const r = await authFetch('/satellites/getAllSatellites', {
+          signal, method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}'
         });
-      }
-    } catch (e) { }
-    try {
-      const r = await authFetch('/tasks/getNewTasksByCondition');
-      const d = await r.json();
-      const tasks = Array.isArray(d) ? d : [];
-      taskList.value = tasks;
-      runningTaskCount.value = tasks.filter(t => t.status === '正在执行').length;
-      diffTaskEvents(tasks);
-      updateTaskStatusChart();
-    } catch (e) { }
-    try {
-      const r = await authFetch('/getPlanningEvaluation');
-      const d = await r.json();
-      const ev = d.evaluation;
-      if (ev && ev.length > 0) {
-        hasSatisfaction.value = true;
-        const latest = ev[ev.length - 1];
-        const sat = Math.round((latest.task_satisfaction || 0) * 100);
-        if (lastSatisfaction !== null && lastSatisfaction !== sat) {
-          pushEvent(`任务规划完成，满足率 ${sat}%`);
+        const d = await r.json();
+        satList.value = Array.isArray(d) ? d : [];
+        updatePayloadChart();
+        checkLowBattery(satList.value);
+      } catch (e) { }
+      try {
+        const r = await authFetch('/satellites/getAllSatelliteInfo', {
+          signal, method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}'
+        });
+        const d = await r.json();
+        if (Array.isArray(d)) {
+          const m = {};
+          d.forEach(s => { m[s.satName] = s; });
+          satInfoMap.value = m;
+          // 同步刷新链路连接表（星间链路/星地链路 CallbackProperty 实时读取）
+          d.forEach(s => {
+            linkTargetMap[s.satName] = { gs: s.connecting_ground_station, geo: s.connecting_geo };
+          });
         }
-        lastSatisfaction = sat;
-        satisfaction.value = sat;
-        planDuration.value = (latest.duration || 0).toFixed(1);
-        updateSatisfactionChart(ev.slice(-10));
-      }
-    } catch (e) { }
-    // 同步后端当前倍速（规划期间后端强制为 1，结束后恢复默认 20；输入框聚焦时不覆盖用户输入）
-    try {
-      const r = await authFetch('/satellites/getMultiplier');
-      const d = await r.json();
-      const editing = document.activeElement && document.activeElement.classList.contains('speed-input');
-      if (!editing && Number.isInteger(d.multiplier) && d.multiplier >= 1) speedInput.value = d.multiplier;
-    } catch (e) { }
-    // 同步后端规划状态（“规划中”呼吸提示）
-    try {
-      const r = await authFetch('/satellites/getPlanningStatus');
-      const d = await r.json();
-      isPlanning.value = !!d.planning;
-    } catch (e) { }
+      } catch (e) { }
+      try {
+        const r = await authFetch('/tasks/getNewTasksByCondition', { signal });
+        const d = await r.json();
+        const tasks = Array.isArray(d) ? d : [];
+        taskList.value = tasks;
+        runningTaskCount.value = tasks.filter(t => t.status === '正在执行').length;
+        diffTaskEvents(tasks);
+        updateTaskStatusChart();
+      } catch (e) { }
+      try {
+        const r = await authFetch('/getPlanningEvaluation', { signal });
+        const d = await r.json();
+        const ev = d.evaluation;
+        if (ev && ev.length > 0) {
+          hasSatisfaction.value = true;
+          const latest = ev[ev.length - 1];
+          const sat = Math.round((latest.task_satisfaction || 0) * 100);
+          if (lastSatisfaction !== null && lastSatisfaction !== sat) {
+            pushEvent(`任务规划完成，满足率 ${sat}%`);
+          }
+          lastSatisfaction = sat;
+          satisfaction.value = sat;
+          planDuration.value = (latest.duration || 0).toFixed(1);
+          updateSatisfactionChart(ev.slice(-10));
+        }
+      } catch (e) { }
+      // 同步后端当前倍速（规划期间后端强制为 1，结束后恢复默认 20；输入框聚焦时不覆盖用户输入）
+      try {
+        const r = await authFetch('/satellites/getMultiplier', { signal });
+        const d = await r.json();
+        const editing = document.activeElement && document.activeElement.classList.contains('speed-input');
+        if (!editing && Number.isInteger(d.multiplier) && d.multiplier >= 1) speedInput.value = d.multiplier;
+      } catch (e) { }
+      // 同步后端规划状态（“规划中”呼吸提示）
+      try {
+        const r = await authFetch('/satellites/getPlanningStatus', { signal });
+        const d = await r.json();
+        isPlanning.value = !!d.planning;
+      } catch (e) { }
+  
+    } finally {
+      if (hudAbortController === controller) hudAbortController = null;
+      hudRefreshing = false;
+    }
   }
 
   // 设定仿真倍速：调用后端 /satellites/getCurrentMultiplierAndTime?multiplier=N（N 为 ≥1 整数）
@@ -377,7 +392,7 @@
     }
     speedInput.value = m;
     try {
-      const r = await authFetch(`/satellites/getCurrentMultiplierAndTime?multiplier=${m}`);
+      const r = await authFetch(`/satellites/getCurrentMultiplierAndTime?multiplier=${m}`, { method: 'POST' });
       if (r.ok) {
         pushEvent(`仿真倍速已调整为 ×${m}`);
       } else {
@@ -492,8 +507,8 @@
     sats.forEach(s => {
       if (typeof s.battery === 'number' && s.battery < 20 && !lowBatteryWarned.has(s.name)) {
         lowBatteryWarned.add(s.name);
+        // pushEvent 会将 alarm 级别同步到告警中心，避免重复写入
         pushEvent(`卫星 ${s.name} 电量过低（${s.battery}Wh），请注意`, 'alarm');
-        pushLocalAlert('alarm', '卫星', `卫星 ${s.name} 电量过低（${s.battery}Wh）`);
       }
     });
   }
@@ -747,6 +762,9 @@
   }
 
   onUnmounted(() => {
+    pageDisposed = true;
+    if (hudAbortController) { hudAbortController.abort(); hudAbortController = null; }
+    if (czmlAbortController) { czmlAbortController.abort(); czmlAbortController = null; }
     if (hudTimer) { clearInterval(hudTimer); hudTimer = null; }
     window.removeEventListener('resize', handleResize);
     window.removeEventListener('keydown', onKeydown);
@@ -774,6 +792,7 @@
  
   
   onMounted(() => {
+    pageDisposed = false;
     // ArcGIS影像图层 对浏览器会有压力
     // const esri = new Cesium.ArcGisMapServerImageryProvider({
     //   url:"https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer",
@@ -854,7 +873,8 @@
     async function loadCzmlDataSource() {
       czmlLoading.value = true;
       try {
-        const res = await authFetch('/getCzml');
+        czmlAbortController = new AbortController();
+        const res = await authFetch('/getCzml', { signal: czmlAbortController.signal, timeout: 60000 });
         if (res.ok) {
           const data = await res.json();
           if (Array.isArray(data) && data.length > 1) {
@@ -876,6 +896,7 @@
   
     // 在 CZML 数据加载完成后，为特定卫星添加扫描圆锥并绑定点击事件
     czmldata.then((dataSource) => {
+      if (pageDisposed || viewer.isDestroyed()) return;
       czmlLoading.value = false;   // 轨道数据就绪，关闭加载提示
       satDataSource = dataSource;  // 供 HUD 面板使用
       satDsReady.value++;          // 通知响应式依赖（selectedEntity 等）数据源就绪
@@ -1134,6 +1155,7 @@
         }
       }, Cesium.ScreenSpaceEventType.LEFT_CLICK);
     }).catch((error) => {
+      if (pageDisposed || viewer.isDestroyed()) return;
       czmlLoading.value = false;  // 失败同样关闭加载提示，避免永久转圈
       console.error("加载 CZML 数据失败：", error);
     });
