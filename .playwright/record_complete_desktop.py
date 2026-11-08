@@ -19,7 +19,7 @@ from record_full_flow import (
 )
 
 RUN_ID = datetime.now().strftime('%Y%m%d_%H%M%S') + f'_{os.getpid()}'
-KIND = 'complete_desktop'
+KIND = 'complete_desktop_smooth'
 EVIDENCE_DIR = WORK_DIR / 'evidence' / f'{KIND}_{RUN_ID}'
 VIDEO_DIR = WORK_DIR / 'videos' / KIND
 CAPTURE_LOG = WORK_DIR / f'{KIND}_{RUN_ID}.log'
@@ -488,11 +488,12 @@ def show_performance(page, sections):
 
 
 def record_complete_desktop(browser, base_url, password, clients):
-    viewport = {'width': 1440, 'height': 900}
+    viewport = {'width': 1280, 'height': 800}
     context = browser.new_context(
         viewport=viewport, record_video_dir=str(VIDEO_DIR),
         record_video_size=viewport, device_scale_factor=1, locale='zh-CN',
     )
+    context.add_init_script("try { localStorage.setItem('sat_record_smooth', '1'); } catch (e) {}")
     page = context.new_page()
     page.set_default_timeout(30000)
     video = page.video
@@ -575,7 +576,7 @@ def record_complete_desktop(browser, base_url, password, clients):
 
     webm_path = VIDEO_DIR / f'{KIND}_{RUN_ID}.webm'
     video.save_as(str(webm_path))
-    mp4_path = OUTPUT_DIR / f'桌面全系统功能真实运行演示_{RUN_ID}.mp4'
+    mp4_path = OUTPUT_DIR / f'卫星项目_全系统真实运行流畅版_37功能段_{RUN_ID}.mp4'
     subprocess.run([
         'ffmpeg', '-hide_banner', '-loglevel', 'warning', '-n',
         '-i', str(webm_path), '-an', '-c:v', 'libx264', '-preset', 'medium',
@@ -586,6 +587,10 @@ def record_complete_desktop(browser, base_url, password, clients):
 
 
 def main():
+    os.environ.setdefault('DISPLAY', ':99')
+    os.environ.setdefault('MESA_GLTHREAD', 'true')
+    os.environ.setdefault('LP_NUM_THREADS', '5')
+    os.environ.setdefault('LIBGL_ALWAYS_SOFTWARE', '1')
     database_path = BACKEND_DIR / f'acceptance_complete_desktop_{RUN_ID}.sqlite3'
     server_log_path = BACKEND_DIR / f'acceptance_complete_desktop_{RUN_ID}.log'
     api_port = 5700 + (os.getpid() % 200)
@@ -629,10 +634,12 @@ def main():
         )(request_json(base_url, '/health')), 180, description='完整巡演双客户端与卫星网络就绪')
         with sync_playwright() as playwright:
             browser = playwright.chromium.launch(
-                executable_path='/usr/bin/chromium', headless=True,
+                executable_path='/usr/bin/chromium', headless=False,
                 args=[
-                    '--no-sandbox', '--disable-dev-shm-usage', '--enable-unsafe-swiftshader',
-                    '--use-gl=angle', '--use-angle=swiftshader', '--disable-gpu-sandbox',
+                    '--no-sandbox', '--disable-dev-shm-usage',
+                    '--use-gl=angle', '--use-angle=gl', '--disable-gpu-sandbox',
+                    '--ignore-gpu-blocklist', '--enable-gpu-rasterization',
+                    '--window-position=0,0', '--window-size=1280,800',
                 ],
             )
             try:

@@ -237,6 +237,10 @@
   const isFullscreen = ref(false);  // 全屏展示状态
   const autoRotate = ref(false);    // 地球自转展示开关（跟踪卫星时自动暂停）
   const demoMode = ref(false);       // 演示模式：隐藏业务面板，保留态势场景与退出控件
+  // 软件 WebGL 录屏模式：仅降低装饰效果与瓦片精度，不改变卫星、任务或交互数据
+  const smoothRecording = (() => {
+    try { return localStorage.getItem('sat_record_smooth') === '1'; } catch (e) { return false; }
+  })();
   const taskRuntime = new Map();     // 执行任务的本地墙钟起点，进度不随仿真倍速变化
   let rotateHandler = null;         // Cesium postRender 自转回调引用
 
@@ -688,7 +692,7 @@
       if (entity.path) entity.path.show = checked && globalPathShow.value && sw.path;
     }
     const glow = satGlowPoints && satGlowPoints.get(id);
-    if (glow) glow.show = checked;
+    if (glow) glow.show = checked && !smoothRecording;
     setFrustumVisible(id, checked && globalFrustumShow.value && sw.frustum && hiddenFrustumId.value !== id && !focusMode.value);
   }
 
@@ -845,6 +849,7 @@
     });
     // 创建 Cesium 视图
     let viewer = new Cesium.Viewer("cesiumContainer", {
+      msaaSamples:smoothRecording ? 1 : 4,
       baseLayer:false, // 禁用默认 Ion 底图（token 已失效会报 401），底图改用下方高德瓦片
       animation:false, // 动画控件（隐藏，保持 HUD 大屏整洁）
       timeline:true, // 时间轴控件（底部显示，可拖动查看轨迹时刻）
@@ -858,13 +863,13 @@
       infoBox: false, // 信息框，If set to false, the InfoBox widget will not be created.点击的详情弹窗entity的description可以描述html显示在弹窗中,也可以通过viewer.infoBox.frame来接入访问
       contextOptions: {
           webgl:{
-            alpha: true,
+            alpha: !smoothRecording,
             depth:true,
-            stencil:true,
-            antialias:true,
+            stencil:!smoothRecording,
+            antialias:!smoothRecording,
             premultipliedAlpha:true,
-            //通过canvas.toDataURL()实现截图需要将该项设置为true
-            preserveDrawingBuffer:true,
+            //通过canvas.toDataURL()实现截图需要将该项设置为true；软件 WebGL 录屏由浏览器合成画面
+            preserveDrawingBuffer:!smoothRecording,
             failIfMajorPerformanceCaveat:true
           }
         }
@@ -875,6 +880,19 @@
     //去掉版权信息
     viewer.clock.shouldAnimate = true;
     viewer._cesiumWidget._creditContainer.style.display = "none"
+    if (smoothRecording) {
+      // 无硬件 GPU 的录屏环境中降低片元与瓦片开销，保留真实影像和全部业务实体
+      viewer.resolutionScale = 0.85;
+      viewer.scene.globe.maximumScreenSpaceError = 6;
+      viewer.scene.globe.showGroundAtmosphere = false;
+      viewer.scene.skyAtmosphere.show = false;
+      viewer.scene.skyBox.show = false;
+      viewer.scene.sun.show = false;
+      viewer.scene.moon.show = false;
+      viewer.scene.fog.enabled = false;
+      viewer.scene.msaaSamples = 1;
+      viewer.scene.postProcessStages.fxaa.enabled = false;
+    }
     viewerRef = viewer;  // 供 HUD 面板使用
     // 初始与"回家"视角：全球俯瞰（CZML 加载后默认会缩放到数据可用区间起点、
     // 高度贴地导致底图瓦片加载不出显示灰块，这里显式设为全球视角并覆盖默认 HOME）
@@ -891,7 +909,7 @@
     // 注记层按相机高度分级显隐：全球视角（>1200万米）下中文地名密成一团且浪费瓦片请求，
     // 仅在拉近到区域/城市级别时显示
     const updateLabelVisibility = () => {
-      amapLabelLayer.show = viewer.camera.positionCartographic.height < 1.2e7;
+      amapLabelLayer.show = !smoothRecording && viewer.camera.positionCartographic.height < 1.2e7;
     };
     viewer.camera.changed.addEventListener(updateLabelVisibility);
     viewer.camera.percentageChanged = 0.01;  // 默认 0.5 节流阈值太大，小范围移动不触发
@@ -1005,6 +1023,7 @@
       satelliteEntities.forEach(entity => {
           if (entity.label) {
               entity.label.distanceDisplayCondition = new Cesium.DistanceDisplayCondition(0, 1.0e7);
+              if (smoothRecording) entity.label.show = false;
           }
           // 卫星图标：换用提亮加青色光晕的版本（原版 16px 暗色图标在深色太空背景下几乎不可见），
           // 远处适度缩小并配合拖尾光点，既清晰又不遮挡地球
@@ -1015,10 +1034,12 @@
           }
           if (entity.path) {
               entity.path.width = 2;
-              entity.path.material = new Cesium.PolylineGlowMaterialProperty({
-                  glowPower: 0.15,
-                  color: Cesium.Color.fromCssColorString('#00dcff').withAlpha(0.55)
-              });
+              entity.path.material = smoothRecording
+                  ? new Cesium.ColorMaterialProperty(Cesium.Color.fromCssColorString('#00dcff').withAlpha(0.7))
+                  : new Cesium.PolylineGlowMaterialProperty({
+                      glowPower: 0.15,
+                      color: Cesium.Color.fromCssColorString('#00dcff').withAlpha(0.55)
+                  });
               // 200 颗卫星的拖尾线在全球视角下交织成乱麻，仅在相机拉近（<2e7m）时显示
               entity.path.distanceDisplayCondition = new Cesium.DistanceDisplayCondition(0, 2.0e7);
           }
@@ -1149,11 +1170,13 @@
         initFrustum(satellite);
       });
       applyAllVisibility();  // 按当前勾选/开关状态统一刷新显隐（默认全部显示）
-      viewer.scene.globe.depthTestAgainstTerrain = true;
+      viewer.scene.globe.depthTestAgainstTerrain = !smoothRecording;
 
-      // 每帧仅更新modelMatrix
+      // 每帧仅更新可见视锥的 modelMatrix；录屏模式不计算已隐藏的 200 组装饰几何
       viewer.clock.onTick.addEventListener(function () {
+        if (smoothRecording && !globalFrustumShow.value) return;
         satelliteEntities.forEach(satellite => {
+          if (smoothRecording && !getSatSwitch(String(satellite.id).split('/')[1]).frustum) return;
           updateFrustumModelMatrix(satellite);
         });
       });
@@ -1208,6 +1231,7 @@
     Object.keys(Positions_of_GroundStations).forEach(i => {Create_for_GroundStations(Positions_of_GroundStations[i].id, Positions_of_GroundStations[i].lon, Positions_of_GroundStations[i].lat, Positions_of_GroundStations[i].radius)});
     // 合并为一个onTick监听器更新所有地面站
     viewer.clock.onTick.addEventListener(() => {
+      if (smoothRecording) return;
       groundStationStates.forEach(state => {
         state.heading += 5.0;
         state.positionArr = calcPoints(state.lon, state.lat, state.radius, state.heading);
@@ -1293,6 +1317,7 @@
     }
     // 通信链路数据源：星间链路（卫星↔高轨卫星）与星地数传链路（卫星↔地面站）
     linkDataSource = new Cesium.CustomDataSource('CommLinks');
+    linkDataSource.show = globalLinkShow.value;
     viewer.dataSources.add(linkDataSource);
     // 高轨中继卫星节点（点 + 标签）
     Object.keys(GEO_POSITIONS).forEach(name => {
