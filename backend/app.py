@@ -181,7 +181,7 @@ def global_auth_check():
     path = request.path
     frontend_path = path in ('/', '/portal', '/login', '/register') or path.startswith('/satellite/')
     static_path = path.startswith(('/static/', '/assets/', '/css/', '/js/', '/img/', '/cesium/'))
-    if (path in AUTH_WHITELIST or path in ('/health', '/favicon.ico') or static_path
+    if (path in AUTH_WHITELIST or path in ('/health', '/favicon.ico', '/vite.svg') or static_path
             or (request.method == 'GET' and frontend_path)):
         return None
     username = check_token(request.headers.get('Ac-Token'))

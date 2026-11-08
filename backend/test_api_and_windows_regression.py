@@ -196,5 +196,8 @@ def test_production_cesium_assets_are_public_but_api_stays_protected(monkeypatch
     client = production_app.app.test_client()
     with production_app.app.test_request_context('/cesium/Workers/transferTypedArrayTest.js'):
         assert production_app.global_auth_check() is None
+    with production_app.app.test_request_context('/vite.svg'):
+        assert production_app.global_auth_check() is None
+    assert client.get('/vite.svg').status_code == 200
     response = client.get('/tasks/getTaskStats')
     assert response.status_code == 401

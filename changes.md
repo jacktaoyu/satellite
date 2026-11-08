@@ -3312,3 +3312,26 @@ PYTHONPATH=.runtime-deps:backend python3 -u backend/test_real_occ_client.py
 
 【部署核验】`Dockerfile`、`.dockerignore`、生产 `frontend/dist/index.html` 与 Cesium 静态入口存在；当前环境没有 `docker` 命令，未实际构建 Docker 镜像，不以文件检查代替镜像构建结果。
 【版本入口】按动态版本保存要求补充根目录 `index.html` 占位入口，仅跳转 `/login`；Flask 生产同源入口与 Dockerfile 不变，不将动态应用改为静态站点。
+
+
+## 完整功能录屏返工：持续展示真实任务执行（2026-11-08）
+
+【问题】上一版视频虽然后台真实执行任务，但前台主要呈现执行计数与完成归档，执行详情停留过短，未展示卫星网络中的实时执行进度，不能清晰证明任务执行过程。
+【录屏调整】任务创建后进入卫星网络页面，持续展示自动规划、正在执行和任务百分比进度，直到客户端回传并归档，再返回任务属性查看历史 Success、业务 UUID、分配卫星和原始回传。脚本强制要求进度样本至少达到 50%，否则不导出视频；不再在短执行窗口内反复切换页面。
+【修改】`backend/app.py`：将既有公开 `/vite.svg` 图标按精确路径加入静态白名单，消除浏览器 favicon 401；API 鉴权不变。对应回归已补充，22 项测试再次全部通过。
+
+最终新视频（旧视频保留、不覆盖）：
+- `/mnt/agents/output/桌面完整功能演示.mp4`：156.04 秒，1440×900；执行进度实际记录为 1%、23%、46%、69%、94%，随后历史 Success；浏览器控制台错误、失败请求、HTTP 错误均为 0。
+- `/mnt/agents/output/手机完整功能演示.mp4`：142.44 秒，390×844；执行进度实际记录为 1%、23%、46%、69%，随后历史 Success；浏览器控制台错误、失败请求、HTTP 错误均为 0。
+- 两端任务均由 `Sat_10_17` 真实执行，桌面客户端耗时 21600 ms、手机客户端耗时 21601 ms；录制中发生 ACK 超时重发，重发后确认成功且只保留一条历史任务。
+- 两段均为 H.264、25 fps、无音轨，已通过完整解码检查，无说明字幕或解释贴片。
+
+复核步骤：
+```bash
+# 播放新视频，卫星网络左侧“任务执行进度”必须出现任务名称、百分比和进度条增长；
+# 随后历史任务详情必须出现 Success、分配卫星、业务 UUID、结果接收时间和客户端原始回传。
+ffprobe -v error -show_entries format=duration,size:stream=codec_name,width,height,r_frame_rate -of json /mnt/agents/output/桌面完整功能演示.mp4
+ffprobe -v error -show_entries format=duration,size:stream=codec_name,width,height,r_frame_rate -of json /mnt/agents/output/手机完整功能演示.mp4
+ffmpeg -v error -i /mnt/agents/output/桌面完整功能演示.mp4 -f null -
+ffmpeg -v error -i /mnt/agents/output/手机完整功能演示.mp4 -f null -
+```
