@@ -11,10 +11,10 @@ const request = axios.create({
   timeout: 15000,// 请求超时时间
 })
 
-// 401 统一处理：清除全部本地登录态并跳转登录页（与 main.vue 退出登录逻辑保持一致）
+// 401 统一处理：仅清除登录态，保留事件记录等同源业务数据
 // 注意：门户页/登录页/注册页是公开页面，token 过期时仅静默清理，不强制跳转，避免“返回首页被弹回登录页”
 function handleUnauthorized() {
-  localStorage.clear()
+  ['token', 'isAdmin', 'userInfo', 'userInfoid', 'nickname'].forEach(key => localStorage.removeItem(key))
   const publicPaths = ["/portal", "/login", "/register"]
   if (!publicPaths.includes(Router.currentRoute.value.path)) {
     Router.push("/login") //跳转到登陆页面

@@ -1,5 +1,5 @@
 <template>
-  <div class="situation-page">
+  <div class="situation-page" :class="{ 'demo-mode': demoMode }">
     <!-- 星空粒子背景（Cesium 地球之下，填补深空区域） -->
     <Starfield :density="0.9" :opacity="0.8" />
     <div id="cesiumContainer"></div>
@@ -67,9 +67,9 @@
       <div class="sat-filter">
         <select v-model="batteryFilter" class="sat-filter-select" title="按剩余电量筛选">
           <option value="">全部电量</option>
-          <option value="low">低电量（&lt;20Wh）</option>
-          <option value="mid">20–2000Wh</option>
-          <option value="high">充足（&gt;2000Wh）</option>
+          <option value="low">低电量（&lt;20%）</option>
+          <option value="mid">20–80%</option>
+          <option value="high">充足（&gt;80%）</option>
         </select>
         <select v-model="orbitFilter" class="sat-filter-select" title="按轨道面筛选">
           <option value="">全部轨道面</option>
@@ -82,13 +82,13 @@
                  @click.stop @change="toggleSatVisible(sat.name, $event.target.checked)" />
           <span class="sat-name">{{ sat.name }}</span>
           <span class="sat-payload">{{ sat.loadType }}</span>
-          <span class="sat-battery" :class="satDotClass(sat)">{{ sat.battery }}Wh</span>
+          <span class="sat-battery" :class="satDotClass(sat)">{{ sat.battery }}Wh · {{ batteryPercent(sat) }}%</span>
         </div>
         <div v-if="filteredSats.length === 0" class="empty-tip">{{ satList.length === 0 ? '暂无卫星数据，请先完成系统初始化' : '未找到匹配的卫星' }}</div>
       </div>
       <div class="panel-title">任务执行进度（{{ taskList.length }}）</div>
       <div class="task-list">
-        <div v-for="task in taskList" :key="task.task_name" class="task-item">
+        <div v-for="task in taskList" :key="task.task_uuid || task.id || task.task_name" class="task-item">
           <div class="task-head">
             <span class="task-name">{{ task.task_name }}</span>
             <span class="task-pct">{{ taskProgress(task) }}%</span>
@@ -136,7 +136,7 @@
         <template v-if="selectedSat.info">
           <div class="detail-row"><span>载荷类型</span><b>{{ selectedSat.info.loadType }}</b></div>
           <div class="detail-row"><span>分辨率</span><b>{{ selectedSat.info.resolution }} m</b></div>
-          <div class="detail-row"><span>电量</span><b>{{ selectedSat.info.battery }} Wh</b></div>
+          <div class="detail-row"><span>电量</span><b>{{ selectedSat.info.battery }} Wh（{{ batteryPercent(selectedSat.info) }}%）</b></div>
           <div class="detail-row"><span>存储</span><b>{{ selectedSat.info.storage }} GB</b></div>
         </template>
         <div class="detail-row"><span>周期</span><b>{{ selectedExtra ? satPeriod(selectedExtra.tle2) : '-' }}</b></div>
@@ -182,7 +182,7 @@
   
 <script setup>
   import { onMounted, onUnmounted, ref, reactive, computed } from "vue";
-  import * as Cesium from "cesium";
+  let Cesium = null;
   import echarts from "@/utils/echarts.js";
   import { authFetch } from "@/utils/authFetch.js";
   import { utcToLocalString } from "@/utils/time.js";
@@ -223,6 +223,10 @@
   const showEventBar = ref(true);      // 常用功能：实时事件栏开关
   const satInfoMap = ref({});          // getAllSatelliteInfo 结果（key: satName）
   let hudTimer = null;
+  let hudRefreshing = false;
+  let hudAbortController = null;
+  let czmlAbortController = null;
+  let pageDisposed = false;
   const prevTaskStatus = {};        // 任务状态快照，用于比对生成事件
   const lowBatteryWarned = new Set(); // 已报过低电量告警的卫星
   let lastSatisfaction = null;      // 上一次满足率，用于生成规划完成事件
@@ -232,6 +236,8 @@
   const isPlanning = ref(false);    // 后端是否正在规划（呼吸提示，轮询 /satellites/getPlanningStatus）
   const isFullscreen = ref(false);  // 全屏展示状态
   const autoRotate = ref(false);    // 地球自转展示开关（跟踪卫星时自动暂停）
+  const demoMode = ref(false);       // 演示模式：隐藏业务面板，保留态势场景与退出控件
+  const taskRuntime = new Map();     // 执行任务的本地墙钟起点，进度不随仿真倍速变化
   let rotateHandler = null;         // Cesium postRender 自转回调引用
 
   // 轨道面选项：取卫星别名（orbit 字段）去重排序
@@ -247,10 +253,11 @@
     return satList.value.filter(s => {
       if (kw && !String(s.name).toLowerCase().includes(kw) &&
           !String(s.loadType || '').toLowerCase().includes(kw)) return false;
-      if (batteryFilter.value && typeof s.battery === 'number') {
-        if (batteryFilter.value === 'low' && s.battery >= 20) return false;
-        if (batteryFilter.value === 'mid' && (s.battery < 20 || s.battery > 2000)) return false;
-        if (batteryFilter.value === 'high' && s.battery <= 2000) return false;
+      if (batteryFilter.value) {
+        const percent = batteryPercent(s);
+        if (batteryFilter.value === 'low' && percent >= 20) return false;
+        if (batteryFilter.value === 'mid' && (percent < 20 || percent > 80)) return false;
+        if (batteryFilter.value === 'high' && percent <= 80) return false;
       }
       if (orbitFilter.value && String(s.orbit || '') !== orbitFilter.value) return false;
       return true;
@@ -258,15 +265,22 @@
   });
 
   // 全屏展示切换（演示模式：浏览器级全屏）
-  function toggleFullscreen() {
-    if (document.fullscreenElement) {
-      document.exitFullscreen();
-    } else {
-      document.documentElement.requestFullscreen().catch(() => {});
+  async function toggleFullscreen() {
+    try {
+      if (document.fullscreenElement) {
+        await document.exitFullscreen();
+      } else {
+        demoMode.value = true;
+        await document.documentElement.requestFullscreen();
+      }
+    } catch (e) {
+      demoMode.value = !demoMode.value;
+      isFullscreen.value = demoMode.value;
     }
   }
   function onFullscreenChange() {
     isFullscreen.value = !!document.fullscreenElement;
+    if (!isFullscreen.value) demoMode.value = false;
   }
 
   // 地球自转展示：相机绕地轴缓慢旋转；用户选中卫星进入跟踪时自动暂停
@@ -297,75 +311,87 @@
 
   // 面板数据轮询
   async function refreshHud() {
+    if (hudRefreshing || pageDisposed || document.hidden) return;
+    hudRefreshing = true;
+    const controller = new AbortController();
+    hudAbortController = controller;
+    const signal = controller.signal;
     try {
-      const r = await authFetch('/getCurrentTime');
-      const d = await r.json();
-      // 后端返回 UTC，转本地时区显示（与系统设置页提交的本地时间一致）
-      simTime.value = utcToLocalString(d.current_time);
-    } catch (e) { /* 后端未就绪时静默 */ }
-    try {
-      const r = await authFetch('/satellites/getAllSatellites', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}'
-      });
-      const d = await r.json();
-      satList.value = Array.isArray(d) ? d : [];
-      updatePayloadChart();
-      checkLowBattery(satList.value);
-    } catch (e) { }
-    try {
-      const r = await authFetch('/satellites/getAllSatelliteInfo', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}'
-      });
-      const d = await r.json();
-      if (Array.isArray(d)) {
-        const m = {};
-        d.forEach(s => { m[s.satName] = s; });
-        satInfoMap.value = m;
-        // 同步刷新链路连接表（星间链路/星地链路 CallbackProperty 实时读取）
-        d.forEach(s => {
-          linkTargetMap[s.satName] = { gs: s.connecting_ground_station, geo: s.connecting_geo };
+      try {
+        const r = await authFetch('/getCurrentTime', { signal });
+        const d = await r.json();
+        // 后端返回 UTC，转本地时区显示（与系统设置页提交的本地时间一致）
+        simTime.value = utcToLocalString(d.current_time);
+      } catch (e) { /* 后端未就绪时静默 */ }
+      try {
+        const r = await authFetch('/satellites/getAllSatellites', {
+          signal, method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}'
         });
-      }
-    } catch (e) { }
-    try {
-      const r = await authFetch('/tasks/getNewTasksByCondition');
-      const d = await r.json();
-      const tasks = Array.isArray(d) ? d : [];
-      taskList.value = tasks;
-      runningTaskCount.value = tasks.filter(t => t.status === '正在执行').length;
-      diffTaskEvents(tasks);
-      updateTaskStatusChart();
-    } catch (e) { }
-    try {
-      const r = await authFetch('/getPlanningEvaluation');
-      const d = await r.json();
-      const ev = d.evaluation;
-      if (ev && ev.length > 0) {
-        hasSatisfaction.value = true;
-        const latest = ev[ev.length - 1];
-        const sat = Math.round((latest.task_satisfaction || 0) * 100);
-        if (lastSatisfaction !== null && lastSatisfaction !== sat) {
-          pushEvent(`任务规划完成，满足率 ${sat}%`);
+        const d = await r.json();
+        satList.value = Array.isArray(d) ? d : [];
+        updatePayloadChart();
+        checkLowBattery(satList.value);
+      } catch (e) { }
+      try {
+        const r = await authFetch('/satellites/getAllSatelliteInfo', {
+          signal, method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}'
+        });
+        const d = await r.json();
+        if (Array.isArray(d)) {
+          const m = {};
+          d.forEach(s => { m[s.satName] = s; });
+          satInfoMap.value = m;
+          // 同步刷新链路连接表（星间链路/星地链路 CallbackProperty 实时读取）
+          d.forEach(s => {
+            linkTargetMap[s.satName] = { gs: s.connecting_ground_station, geo: s.connecting_geo };
+          });
         }
-        lastSatisfaction = sat;
-        satisfaction.value = sat;
-        planDuration.value = (latest.duration || 0).toFixed(1);
-        updateSatisfactionChart(ev.slice(-10));
-      }
-    } catch (e) { }
-    // 同步后端当前倍速（规划期间后端强制为 1，结束后恢复默认 20；输入框聚焦时不覆盖用户输入）
-    try {
-      const r = await authFetch('/satellites/getMultiplier');
-      const d = await r.json();
-      const editing = document.activeElement && document.activeElement.classList.contains('speed-input');
-      if (!editing && Number.isInteger(d.multiplier) && d.multiplier >= 1) speedInput.value = d.multiplier;
-    } catch (e) { }
-    // 同步后端规划状态（“规划中”呼吸提示）
-    try {
-      const r = await authFetch('/satellites/getPlanningStatus');
-      const d = await r.json();
-      isPlanning.value = !!d.planning;
-    } catch (e) { }
+      } catch (e) { }
+      try {
+        const r = await authFetch('/tasks/getNewTasksByCondition', { signal });
+        const d = await r.json();
+        const tasks = Array.isArray(d) ? d : [];
+        taskList.value = tasks;
+        syncTaskRuntime(tasks);
+        runningTaskCount.value = tasks.filter(t => t.status === '正在执行').length;
+        diffTaskEvents(tasks);
+        updateTaskStatusChart();
+      } catch (e) { }
+      try {
+        const r = await authFetch('/getPlanningEvaluation', { signal });
+        const d = await r.json();
+        const ev = d.evaluation;
+        if (ev && ev.length > 0) {
+          hasSatisfaction.value = true;
+          const latest = ev[ev.length - 1];
+          const sat = Math.round((latest.task_satisfaction || 0) * 100);
+          if (lastSatisfaction !== null && lastSatisfaction !== sat) {
+            pushEvent(`任务规划完成，满足率 ${sat}%`);
+          }
+          lastSatisfaction = sat;
+          satisfaction.value = sat;
+          planDuration.value = (latest.duration || 0).toFixed(1);
+          updateSatisfactionChart(ev.slice(-10));
+        }
+      } catch (e) { }
+      // 同步后端当前倍速（规划期间后端强制为 1，结束后恢复默认 20；输入框聚焦时不覆盖用户输入）
+      try {
+        const r = await authFetch('/satellites/getMultiplier', { signal });
+        const d = await r.json();
+        const editing = document.activeElement && document.activeElement.classList.contains('speed-input');
+        if (!editing && Number.isInteger(d.multiplier) && d.multiplier >= 1) speedInput.value = d.multiplier;
+      } catch (e) { }
+      // 同步后端规划状态（“规划中”呼吸提示）
+      try {
+        const r = await authFetch('/satellites/getPlanningStatus', { signal });
+        const d = await r.json();
+        isPlanning.value = !!d.planning;
+      } catch (e) { }
+  
+    } finally {
+      if (hudAbortController === controller) hudAbortController = null;
+      hudRefreshing = false;
+    }
   }
 
   // 设定仿真倍速：调用后端 /satellites/getCurrentMultiplierAndTime?multiplier=N（N 为 ≥1 整数）
@@ -377,7 +403,7 @@
     }
     speedInput.value = m;
     try {
-      const r = await authFetch(`/satellites/getCurrentMultiplierAndTime?multiplier=${m}`);
+      const r = await authFetch(`/satellites/getCurrentMultiplierAndTime?multiplier=${m}`, { method: 'POST' });
       if (r.ok) {
         pushEvent(`仿真倍速已调整为 ×${m}`);
       } else {
@@ -414,17 +440,25 @@
   }
 
   // ===== 任务进度 / 事件聚合 / 右侧图表 =====
-  // 任务执行进度百分比：按仿真时间在 [start_time, end_time] 中的位置估算
+  // 执行进度按浏览器墙钟估算，不用仿真时间，调整倍速不会让真实客户端执行加速。
+  function syncTaskRuntime(tasks) {
+    const activeKeys = new Set(tasks.map(task => String(task.task_uuid || task.id || task.task_name)));
+    Array.from(taskRuntime.keys()).forEach(key => {
+      if (!activeKeys.has(key)) taskRuntime.delete(key);
+    });
+  }
   function taskProgress(task) {
-    if (task.status === '已完成') return 100;
-    if (task.status === '等待规划') return 0;
+    if (['已完成', 'Success', 'Failed'].includes(task.status)) return 100;
+    if (task.status !== '正在执行') return 0;
+    const key = String(task.task_uuid || task.id || task.task_name);
+    if (!taskRuntime.has(key)) taskRuntime.set(key, Date.now());
     const start = new Date(String(task.start_time).replace(' ', 'T'));
     const end = new Date(String(task.end_time).replace(' ', 'T'));
-    const now = new Date(simTime.value.replace(' ', 'T'));
-    if (isNaN(start) || isNaN(end) || isNaN(now) || end <= start) {
-      return task.status === '正在执行' ? 50 : 0;
-    }
-    return Math.min(100, Math.max(0, Math.round((now - start) / (end - start) * 100)));
+    const plannedSeconds = Math.max(1, (end - start) / 1000);
+    const reportedSeconds = Number(task.execution_time || task.execute_time);
+    const expectedSeconds = Number.isFinite(reportedSeconds) && reportedSeconds > 0 ? reportedSeconds : plannedSeconds;
+    const elapsedSeconds = (Date.now() - taskRuntime.get(key)) / 1000;
+    return Math.min(95, Math.max(1, Math.round(elapsedSeconds / expectedSeconds * 100)));
   }
 
   // 底部事件队列：追加一条事件，最多保留 30 条，并持久化到 localStorage（刷新不丢失）
@@ -490,10 +524,11 @@
   // 卫星低电量告警（每颗卫星只报一次）
   function checkLowBattery(sats) {
     sats.forEach(s => {
-      if (typeof s.battery === 'number' && s.battery < 20 && !lowBatteryWarned.has(s.name)) {
+      const percent = batteryPercent(s);
+      if (percent !== '--' && percent < 20 && !lowBatteryWarned.has(s.name)) {
         lowBatteryWarned.add(s.name);
-        pushEvent(`卫星 ${s.name} 电量过低（${s.battery}Wh），请注意`, 'alarm');
-        pushLocalAlert('alarm', '卫星', `卫星 ${s.name} 电量过低（${s.battery}Wh）`);
+        // pushEvent 会将 alarm 级别同步到告警中心，避免重复写入
+        pushEvent(`卫星 ${s.name} 电量过低（${percent}%），请注意`, 'alarm');
       }
     });
   }
@@ -605,11 +640,19 @@
     return Array.isArray(v) ? (v.length ? v.join('、') : '无') : String(v);
   }
 
-  // 卫星列表状态呼吸灯：电量 <20 红色告警，<50 黄色关注，否则绿色在线
+  function batteryPercent(sat) {
+    const battery = Number(sat.battery);
+    const maximum = Number(sat.maxBattery);
+    if (!Number.isFinite(battery) || !Number.isFinite(maximum) || maximum <= 0) return '--';
+    return Math.round(Math.min(100, Math.max(0, battery / maximum * 100)));
+  }
+
+  // 卫星列表状态呼吸灯：按真实容量百分比判断电量。
   function satDotClass(sat) {
-    if (typeof sat.battery === 'number') {
-      if (sat.battery < 20) return 'dot-alarm';
-      if (sat.battery < 50) return 'dot-warn';
+    const percent = batteryPercent(sat);
+    if (percent !== '--') {
+      if (percent < 20) return 'dot-alarm';
+      if (percent < 50) return 'dot-warn';
     }
     return 'dot-ok';
   }
@@ -747,6 +790,9 @@
   }
 
   onUnmounted(() => {
+    pageDisposed = true;
+    if (hudAbortController) { hudAbortController.abort(); hudAbortController = null; }
+    if (czmlAbortController) { czmlAbortController.abort(); czmlAbortController = null; }
     if (hudTimer) { clearInterval(hudTimer); hudTimer = null; }
     window.removeEventListener('resize', handleResize);
     window.removeEventListener('keydown', onKeydown);
@@ -762,6 +808,7 @@
       viewerRef.destroy();
       viewerRef = null;
     }
+    taskRuntime.clear();
     satDataSource = null;
     satEntities = [];
     satGlowPoints = null;
@@ -773,7 +820,11 @@
   // ===== HUD 结束 =====
  
   
-  onMounted(() => {
+  onMounted(async () => {
+    pageDisposed = false;
+    try {
+      Cesium = await import("cesium");
+      if (pageDisposed) return;
     // ArcGIS影像图层 对浏览器会有压力
     // const esri = new Cesium.ArcGisMapServerImageryProvider({
     //   url:"https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer",
@@ -854,7 +905,8 @@
     async function loadCzmlDataSource() {
       czmlLoading.value = true;
       try {
-        const res = await authFetch('/getCzml');
+        czmlAbortController = new AbortController();
+        const res = await authFetch('/getCzml', { signal: czmlAbortController.signal, timeout: 60000 });
         if (res.ok) {
           const data = await res.json();
           if (Array.isArray(data) && data.length > 1) {
@@ -876,6 +928,7 @@
   
     // 在 CZML 数据加载完成后，为特定卫星添加扫描圆锥并绑定点击事件
     czmldata.then((dataSource) => {
+      if (pageDisposed || viewer.isDestroyed()) return;
       czmlLoading.value = false;   // 轨道数据就绪，关闭加载提示
       satDataSource = dataSource;  // 供 HUD 面板使用
       satDsReady.value++;          // 通知响应式依赖（selectedEntity 等）数据源就绪
@@ -1134,6 +1187,7 @@
         }
       }, Cesium.ScreenSpaceEventType.LEFT_CLICK);
     }).catch((error) => {
+      if (pageDisposed || viewer.isDestroyed()) return;
       czmlLoading.value = false;  // 失败同样关闭加载提示，避免永久转圈
       console.error("加载 CZML 数据失败：", error);
     });
@@ -1288,6 +1342,12 @@
       });
     }
 
+    } catch (error) {
+      if (pageDisposed) return;
+      czmlLoading.value = false;
+      pushEvent('三维态势组件加载失败，请刷新重试', 'alarm');
+      console.error("Cesium 动态加载失败：", error);
+    }
   });
 </script>
 
@@ -1984,5 +2044,55 @@
     @keyframes marquee {
         0% { transform: translateX(100%); }
         100% { transform: translateX(-100%); }
+    }
+
+    /* 演示模式仅保留地球、顶栏标题和退出控件。 */
+    .demo-mode .left-panel,
+    .demo-mode .right-panel,
+    .demo-mode .bottom-bar,
+    .demo-mode .center-hud,
+    .demo-mode .header-stats,
+    .demo-mode .sim-time,
+    .demo-mode .speed-ctrl,
+    .demo-mode .planning-badge {
+        display: none;
+    }
+    .demo-mode :deep(.cesium-viewer-timelineContainer) {
+        left: 0 !important;
+        right: 0 !important;
+        bottom: 0;
+    }
+
+    @media (max-width: 768px) {
+        .header-stats,
+        .sub-title,
+        .sim-time,
+        .right-panel {
+            display: none;
+        }
+        .sys-title {
+            margin-left: 190px;
+            font-size: 14px;
+            letter-spacing: 1px;
+        }
+        .top-header {
+            justify-content: flex-start;
+            padding: 0 8px;
+        }
+        .header-right {
+            right: 8px;
+            gap: 6px;
+        }
+        .speed-label,
+        .speed-preset {
+            display: none;
+        }
+        .left-panel {
+            left: 6px;
+            width: min(210px, calc(100vw - 12px));
+        }
+        :deep(.cesium-viewer-timelineContainer) {
+            display: none;
+        }
     }
 </style>

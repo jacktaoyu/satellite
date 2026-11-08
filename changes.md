@@ -3206,3 +3206,180 @@ ctx.fillRect(-108, -22, 72, 44); ctx.fillRect(36, -22, 72, 44) // 太阳翼
 ## 2026-09-10 修复仿真时间显示与设置值差 8 小时的问题
 - 系统设置页提交的本地时间在入口被转成 UTC 存储，但卫星网络页/性能分析页显示时直接把 UTC 字符串原样输出，用户设 6 月 6 日却看到 6 月 5 日 16 点；新增 utils/time.js 的 utcToLocalString，两处显示统一 UTC→本地时区转换，设置与显示一致，内部规划时间轴（UTC）不受影响。
 - 测试：npm run build 通过；Playwright 模拟东八区/UTC 浏览器分别提交 6月6日06:00，两页显示均与设置值一致，无页面异常。
+
+
+## 任务结果可靠闭环（重新应用）
+
+【修改】`backend/model/TaskModel.py`、`backend/Service/TaskResultService.py`、`backend/utils/task_schema.py`：新增稳定业务 UUID、结果收件表、原始回传与接收时间，归档和收件在同一数据库事务中完成；既有数据库只补列、补索引和回填 UUID，不清空数据。
+【修改】`backend/client_store.py`、`backend/client.py`：新增 SQLite 持久发件箱、ACK/NACK 历史、断线重连、ACK 超时重发、跨重启去重及 `monotonic` 真实执行计时；连接 Token 只从环境变量读取，停止中的任务不回传伪成功结果。
+【修改】`backend/Service/TaskService.py`、`backend/Service/split.py`、`backend/Service/ControlleService.py`、`backend/Service/SatelliteNetworkService.py`：任务及子任务携带稳定 UUID；发送成功才进入运行队列，提交后 ACK、业务错误 NACK；客户端使用固定槽位，重启后恢复未归档任务，执行计时不再除以仿真倍速。
+
+正常测试步骤：
+```bash
+cd backend
+python3 -m py_compile model/TaskModel.py Service/TaskResultService.py client_store.py client.py utils/task_schema.py Service/TaskService.py Service/split.py Service/SatelliteNetworkService.py Service/ControlleService.py
+# 启动独立验收库、OCC 与两个客户端，创建点目标任务；预期依次出现等待执行、正在执行、历史 Success，
+# 客户端收到 ACK，t_task_result 与 t_old_task 各保留一条对应记录。
+```
+异常/边界测试步骤：
+```bash
+# 不设置 SOCKET_AUTH_TOKEN 启动客户端或服务端：预期拒绝连接/启动，且无固定 Token 回退。
+# 对同一 task_uuid 重复回传、回传错误数字 ID、未知 UUID：预期分别幂等 ACK、NACK、NACK。
+# ACK 前断开客户端并重启：预期 outbox 保留并重发；服务端只归档一次。
+# 检查源码：grep -R "dev-satellite-token" backend --include='*.py' 应无输出。
+```
+
+
+## 窗口兼容、任务查询与同源运行（重新应用）
+
+【修改】`backend/utils/downlink_windows.py`、`backend/Service/Ant.py`、`Genetic.py`、`Greedy.py`、`SatelliteService.py`：统一归一化二元素 list/tuple、单窗口 dict 和窗口 ID 映射，忽略缺少起止时间的异常窗口。
+【修改】`backend/blueprint/Task.py`、`backend/blueprint/Satellite.py`：新增分页前名称/UUID/数字 ID 搜索、页码越界回退、全库状态统计、历史结果字段及真实电池容量。
+【修改】`backend/config.py`、`backend/app.py`：支持 `DATABASE_URL`、前端生产资源同源托管、SPA 回退、`/health` 和 `PORT`；数据库升级完成后再启动 OCC，静态页面与 API 鉴权隔离。
+【测试】新增 `backend/test_reliability_recovery.py`、`backend/test_api_and_windows_regression.py`，实际执行 18 项测试全部通过。
+
+正常测试步骤：
+```bash
+cd backend
+PYTHONPATH=../.runtime-deps:. python3 -m pytest -q test_reliability_recovery.py test_api_and_windows_regression.py
+# 预期：18 passed；创建任务后可按名称、UUID、数字 ID 搜索，统计包含新旧任务。
+```
+异常/边界测试步骤：
+```bash
+# 重复回传只产生一条收件和一条历史；错误数字 ID、未知 UUID 均被拒绝且不归档。
+# 客户端在 ACK 前重启，未确认结果仍在 outbox；停止长任务后 outbox 不新增伪成功结果。
+# 窗口传空值、缺字段 dict、二元素 list 或以 ID 为键的 dict，规划过程均不因类型错误崩溃。
+```
+
+
+## 前端任务闭环、移动交互与生产拆包（重新应用）
+
+【修改】`frontend/src/views/Renwu/Shuxing.vue`：任务名称、数字 ID、业务 UUID 统一提交服务端查询，统计改用新旧任务全库接口；历史列表与详情展示接收时间和客户端原始回传，轮询保持当前 Tab。
+【修改】`frontend/src/views/Satellite_network.vue`：Cesium 改为进入页面时动态加载，电量按 `battery / maxBattery` 显示百分比；任务执行进度使用浏览器墙钟估算，不随仿真倍速加速；补充演示模式和窄屏布局。
+【修改】`frontend/src/views/main/main.vue`：移动端侧栏支持遮罩、Esc、路由切换关闭和背景滚动锁定；顶栏健康状态改为真实 `/health` 轮询。
+【修改】`frontend/src/styles/reduced-motion.css`、`main.js`、`utils/config.js`、`vite.config.js`：接入系统减少动画设置，生产 API 默认同源，Cesium 使用独立生产 chunk 并复制完整运行资源。
+
+正常测试步骤：
+```bash
+cd frontend
+npm install
+npm run build
+# 预期构建成功；dist/assets 中出现独立 vendor-cesium chunk，
+# dist/cesium/Assets、Workers、Widgets 资源存在，入口 HTML 不直接加载 Cesium chunk。
+# 页面创建任务后，依次检查待执行、正在执行、历史 Success 与客户端回传详情。
+```
+异常/边界测试步骤：
+```bash
+# 搜索第二页中的任务名称、数字 ID 或 UUID：预期第一页即可命中，不再只过滤当前页。
+# 手机宽度打开抽屉，分别点击遮罩、按 Esc、切换路由：预期抽屉关闭且背景恢复滚动。
+# 停止后端或将 /health 返回 degraded：预期顶栏显示 OFFLINE/DEGRADED，而非固定 LINK NORMAL。
+# 系统开启“减少动态效果”：预期装饰动画与滚动动画停用，任务状态和内容仍完整可见。
+```
+
+
+## 真实闭环修复、浏览器验收与双端录屏（2026-11-08）
+
+【修改】`backend/Service/SatelliteNetworkService.py`：卫星位置为 NumPy 数组时显式判断 `is not None`，避免数组布尔求值导致结果归档异常；鉴权握手按换行解析并保留同包剩余字节，接收线程在再次 `recv()` 前即时消费完整结果消息，修复握手与结果粘包时重复回传无 ACK 的问题。
+【修改】`backend/Service/ControlleService.py`：新增单任务时保留用户输入并去除首尾空白的 `task_name`，仅在名称为空时沿用“任务类型＋随机后缀”的兼容回退，修复入库后按用户任务名搜索为空的问题。
+【修改】`backend/app.py`：仅将 `/cesium/` 静态运行资源加入公开静态白名单，修复 Widgets CSS 与 Workers 被 401 拦截、三维渲染停止的问题；业务 API 仍要求有效 Token。
+【修改】`frontend/src/views/Renwu/Shuxing.vue`：新增任务和任务详情弹窗在手机宽度下限制高度并允许滚动，长 UUID 与回传内容可换行查看。
+【测试】`backend/test_reliability_recovery.py`、`backend/test_api_and_windows_regression.py` 新增 NumPy 位置、TCP 粘包、任务名称与静态资源鉴权边界回归；测试凭据改为运行时生成。最终执行 22 项全部通过，保留既有弃用警告，无失败。
+
+正常测试步骤：
+```bash
+cd /mnt/agents/local-output/app
+PYTHONPATH=.runtime-deps:backend python3 -m pytest backend/test_reliability_recovery.py backend/test_api_and_windows_regression.py -q
+# 实际结果：22 passed。
+cd frontend && npm run build
+# 实际结果：3696 modules transformed，构建成功；Cesium 仍为独立 chunk，入口不直接加载。
+PYTHONPATH=.runtime-deps:backend python3 -u backend/test_real_occ_client.py
+# 已在独立 OCC 库和两个真实客户端上通过：任务经 Sat_10_17 执行，历史 Success，
+# executionDurationMs=21600，真实 ACK、重复 ACK、未知 UUID NACK、收件与历史各一条。
+```
+
+异常/边界测试步骤：
+```bash
+# NumPy 位置数组：预期正常计算高度并归档，不触发“数组真值不明确”异常。
+# 鉴权与结果在同一 TCP 包到达：预期握手剩余结果被立即消费，不等待下一包。
+# 自定义任务名应原样入库并可搜索；纯空白任务名应生成兼容默认名。
+# 无 Token 请求 /cesium/ 静态文件可加载；无 Token 请求 /tasks/getTaskStats 仍返回 401。
+# 手机历史表格隐藏完整文本节点时，录屏按可见任务行和详情按钮验收，不绕过真实归档检查。
+```
+
+【真实浏览器录屏】使用生产前端、真实 Flask/OCC、两个真实 SatelliteClient 和每次独立 SQLite 运行库，未使用演示任务或伪造结果，未添加字幕、章节卡、说明贴片或高亮。
+- `/mnt/agents/output/桌面完整任务闭环.mp4`：1440×900，约 147.64 秒；任务“桌面闭环__25047”由 `Sat_10_17` 执行，历史状态 `Success`，客户端真实执行耗时 21600 ms，详情保留业务 UUID 与原始回传。
+- `/mnt/agents/output/手机完整任务闭环.mp4`：390×844，约 129.32 秒；任务“手机闭环__26250”同样完成等待、执行、ACK、历史 Success 和客户端回传详情。
+- 两段均为 H.264、25 fps、无音轨 MP4；录屏数据库、客户端发件箱、日志和关键帧证据均保留。登录前 `/initializationStatus`、`/getCurrentTime` 的 401 属未登录轮询，登录后的 Cesium Worker 与同源 API 无失败请求。
+
+【部署核验】`Dockerfile`、`.dockerignore`、生产 `frontend/dist/index.html` 与 Cesium 静态入口存在；当前环境没有 `docker` 命令，未实际构建 Docker 镜像，不以文件检查代替镜像构建结果。
+【版本入口】按动态版本保存要求补充根目录 `index.html` 占位入口，仅跳转 `/login`；Flask 生产同源入口与 Dockerfile 不变，不将动态应用改为静态站点。
+
+
+## 完整功能录屏返工：持续展示真实任务执行（2026-11-08）
+
+【问题】上一版视频虽然后台真实执行任务，但前台主要呈现执行计数与完成归档，执行详情停留过短，未展示卫星网络中的实时执行进度，不能清晰证明任务执行过程。
+【录屏调整】任务创建后进入卫星网络页面，持续展示自动规划、正在执行和任务百分比进度，直到客户端回传并归档，再返回任务属性查看历史 Success、业务 UUID、分配卫星和原始回传。脚本强制要求进度样本至少达到 50%，否则不导出视频；不再在短执行窗口内反复切换页面。
+【修改】`backend/app.py`：将既有公开 `/vite.svg` 图标按精确路径加入静态白名单，消除浏览器 favicon 401；API 鉴权不变。对应回归已补充，22 项测试再次全部通过。
+
+最终新视频（旧视频保留、不覆盖）：
+- `/mnt/agents/output/桌面完整功能演示.mp4`：156.04 秒，1440×900；执行进度实际记录为 1%、23%、46%、69%、94%，随后历史 Success；浏览器控制台错误、失败请求、HTTP 错误均为 0。
+- `/mnt/agents/output/手机完整功能演示.mp4`：142.44 秒，390×844；执行进度实际记录为 1%、23%、46%、69%，随后历史 Success；浏览器控制台错误、失败请求、HTTP 错误均为 0。
+- 两端任务均由 `Sat_10_17` 真实执行，桌面客户端耗时 21600 ms、手机客户端耗时 21601 ms；录制中发生 ACK 超时重发，重发后确认成功且只保留一条历史任务。
+- 两段均为 H.264、25 fps、无音轨，已通过完整解码检查，无说明字幕或解释贴片。
+
+复核步骤：
+```bash
+# 播放新视频，卫星网络左侧“任务执行进度”必须出现任务名称、百分比和进度条增长；
+# 随后历史任务详情必须出现 Success、分配卫星、业务 UUID、结果接收时间和客户端原始回传。
+ffprobe -v error -show_entries format=duration,size:stream=codec_name,width,height,r_frame_rate -of json /mnt/agents/output/桌面完整功能演示.mp4
+ffprobe -v error -show_entries format=duration,size:stream=codec_name,width,height,r_frame_rate -of json /mnt/agents/output/手机完整功能演示.mp4
+ffmpeg -v error -i /mnt/agents/output/桌面完整功能演示.mp4 -f null -
+ffmpeg -v error -i /mnt/agents/output/手机完整功能演示.mp4 -f null -
+```
+
+
+## 桌面执行片段单独交付（2026-11-08）
+- 从 `桌面完整功能演示.mp4` 的 105 秒处截取至结束，生成 `/mnt/agents/output/桌面任务执行与结果.mp4`，时长 51.04 秒，便于直接查看执行过程，不代替完整功能演示。
+- 片段包含 1%、23%、46%、69%、94% 的执行进度、任务完成、历史 Success 与客户端回传详情；未添加字幕。
+- 异常/边界检查：完整 ffmpeg 解码无错误，关键帧复核包含执行中和历史结果，源视频保持不变。
+
+
+## 桌面完整视频防缓存重导出（2026-11-08）
+- 用户收到的播放器内容仍为总时长 1:42、16 条任务的旧视频；核对源文件 `桌面完整功能演示.mp4` 为 156.04 秒、单任务闭环，42 秒画面与旧视频不同。
+- 为避免文件名或播放器缓存，重新导出为 `/mnt/agents/output/桌面全流程演示_任务真实执行_20261108.mp4`，保持完整 156.04 秒内容，1440×900、H.264、无音轨。
+- 完整解码检查通过，源文件与旧视频均保留。
+
+
+## 全系统连续录屏与空归档状态修复（2026-11-08）
+
+【修改】`backend/blueprint/Task.py`：示范用例尚无执行归档时，`/tasks/caseResult/<case_type>` 对 point、area、ocean 返回 HTTP 200、`status: success`、`data: null` 和“暂无该用例的执行归档数据”，不再把正常空状态作为 404 异常；未知用例类型仍返回 400。
+【修改】`frontend/src/views/Yongli.vue`：注释与空归档契约保持一致，前端继续以 `data: null` 展示暂无归档，不产生请求异常。
+【测试】`backend/test_api_and_windows_regression.py` 新增三类用例空归档与未知类型回归；复跑 `test_reliability_recovery.py test_api_and_windows_regression.py`，实际结果 `23 passed, 10 warnings`，警告仅为既有 `datetime.utcnow()` 和 SQLAlchemy `Query.get()` 弃用提示。生产前端构建成功，实际为 `3696 modules transformed`。
+
+【完整桌面录屏】新增 `.playwright/record_complete_desktop.py`，使用生产前端、真实 Flask/OCC、两个真实 `SatelliteClient` 和独立 SQLite 验收库，连续录制 37 个功能段；门户、登录、注册、卫星网络与图层、系统设置、载荷参数、卫星管理、任务设置、星簇、地面站、示范用例、告警、回放、任务闭环和性能分析均通过真实菜单与控件操作，不添加字幕、章节卡、说明贴片或高亮。
+【规划画面补强】`.playwright/record_full_flow.py` 的任务创建辅助函数新增兼容参数 `settle_ms`，默认仍为 2500；完整巡演在提交后立即捕获任务详情中的“等待规划／未分配”，随后捕获“等待执行／Sat_10_17”，再进入网络页持续展示真实执行进度。每轮证据写入独立运行目录，不覆盖此前录屏、数据库、日志或截图。
+【真实闭环结果】任务“全系统真实闭环_0_3140”的业务 UUID 为 `ac79df79-a81e-491e-ac04-3e4fd034c97a`，自动规划后由 `Sat_10_17` 执行；进度样本为 1%、23%、46%、69%、94%，历史状态为 Success，客户端真实执行耗时 21600 ms。结果发送 8 次，其中 7 次为真实 ACK 超时重发，随后 ACK 成功；`t_old_task` 与 `t_task_result` 对应 UUID 均各 1 条，客户端 `acked_results` 1 条、`outbox` 0 条，确认幂等归档与持久发件箱清理有效。
+【浏览器与视频验收】浏览器控制台错误 0、HTTP 4xx/5xx 0；页面切换时有 1 次 `/getCurrentTime` 轮询被导航取消（`net::ERR_ABORTED`），不是 HTTP 失败，未造成功能段缺失。最终文件 `/mnt/agents/output/桌面全系统功能真实运行演示_20261108_063900_3140.mp4` 为 439.400 秒、1440×900、25 fps、H.264/yuv420p、无音轨，大小 36009229 字节；完整 ffmpeg 解码无错误，持续黑屏与长时间冻结检测无命中，全片抽帧和关键证据截图已逐段复核。旧版视频与全部运行证据保留。
+
+正常测试步骤：
+```bash
+cd /mnt/agents/local-output/app/backend
+PYTHONPATH=../.runtime-deps:. python3 -m pytest -q test_reliability_recovery.py test_api_and_windows_regression.py
+# 预期 23 passed；point、area、ocean 无归档时均为 200/success/data:null。
+ffprobe -v error -show_entries format=duration,size:stream=codec_name,width,height,r_frame_rate -of json /mnt/agents/output/桌面全系统功能真实运行演示_20261108_063900_3140.mp4
+ffmpeg -v error -i /mnt/agents/output/桌面全系统功能真实运行演示_20261108_063900_3140.mp4 -f null -
+# 播放复核：等待规划→分配 Sat_10_17→正在执行→百分比增长→历史 Success→UUID 与客户端原始回传。
+```
+
+异常／边界测试步骤：
+```bash
+# 请求 /tasks/caseResult/unknown：预期 400；三类合法用例无归档时不得再产生 404 和 console.error。
+# 客户端 ACK 超时：预期同一 UUID 重发；最终只归档一次，ACK 后 outbox 不再保留该任务。
+# 回放快照较少时允许自动播到末帧，不强制点击已经恢复为“播放”的按钮。
+# 录屏必须同时满足 sawPlanning、sawWaiting、sawRunning、历史 Success 和进度超过 50%，否则不得作为完整闭环验收通过。
+```
+
+
+## 完整桌面视频全新入口重导出（2026-11-08）
+- 用户仍看到此前的视频入口；不覆盖任何旧文件，将已验收的 `桌面全系统功能真实运行演示_20261108_063900_3140.mp4` 去掉开头 4 秒等待并重新编码为 `/mnt/agents/output/卫星项目_全系统真实运行完整演示_37功能段_20261108.mp4`，全部 37 个功能段与真实任务闭环保留。
+- 新文件时长 435.400 秒，1440×900、25 fps、H.264、无音轨，大小 35785304 字节；SHA-256 为 `b7da2ff3cf5f27b2c42b949daee2e745c2d8ff454f65d68b21b37d3b39eec839`，与源文件不同。
+- 正常／异常测试：完整 ffmpeg 解码无错误；源视频和旧视频均保留，无说明字幕或解释贴片。

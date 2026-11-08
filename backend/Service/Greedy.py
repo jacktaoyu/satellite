@@ -2,6 +2,7 @@ from datetime import timedelta
 import numpy as np
 import time
 from multiprocessing import Pool, cpu_count
+from utils.downlink_windows import normalize_downlink_windows
 
 
 class GreedyScheduler:
@@ -291,19 +292,8 @@ class GreedyScheduler:
         total_downlink_capacity = 0.0
         valid_windows = []
 
-        for window_idx, downlink_window in enumerate(satellite.downlink_windows):
-            # 获取下行窗口的开始和结束时间
-            if isinstance(downlink_window, tuple) and len(downlink_window) == 2:
-                downlink_start, downlink_end = downlink_window
-            else:
-                try:
-                    downlink_start = downlink_window.get('start', downlink_window.get('start_time'))
-                    downlink_end = downlink_window.get('end', downlink_window.get('end_time'))
-                    if not downlink_start or not downlink_end:
-                        continue
-                except Exception as e:
-                    print(f"  无法解析下行窗口 #{window_idx}: {downlink_window}: {e}")
-                    continue
+        for window_idx, downlink_window in enumerate(normalize_downlink_windows(satellite.downlink_windows)):
+            downlink_start, downlink_end = downlink_window
 
             # 检查下行窗口是否与当前时间段重叠
             if downlink_end <= start_time or downlink_start >= end_time:

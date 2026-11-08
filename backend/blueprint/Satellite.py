@@ -7,6 +7,7 @@ from database import db
 from extions import occ
 from model.TaskModel import NewTaskModel, OldTaskModel
 from model.ClusterModel import ClusterModel
+from utils.auth import require_admin
 
 # 创建卫星蓝图对象
 satellite_bp = Blueprint('satellite', __name__, url_prefix='/satellites')
@@ -67,6 +68,7 @@ def get_satellite_by_id(id):
         "turns": satellite.orbit_number,
         "storage": round(satellite.storage, 2),
         "battery": round(satellite.battery, 2),
+        "maxBattery": round(satellite.battery_capacity, 2),
         "resolution": satellite.resolution_capability,
         "width": satellite.width_of_cloth,
         "sideAngle": round(satellite.side_swing_angle, 2),
@@ -111,6 +113,7 @@ def get_satellite_by_name(name):
         "speed": str([round(float(x), 2) for x in satellite.speed]) if satellite.speed is not None else "",
         "storage": round(satellite.storage, 2),
         "battery": round(satellite.battery, 2),
+        "maxBattery": round(satellite.battery_capacity, 2),
         "resolution": satellite.resolution_capability,
         "width": satellite.width_of_cloth,
         "sideAngle": round(satellite.side_swing_angle, 2),
@@ -156,6 +159,7 @@ def get_all_satellites():
                 "name": satellite.sat_name,
                 "storage": round(satellite.storage, 2),
                 "battery": round(satellite.battery, 2),
+                "maxBattery": round(satellite.battery_capacity, 2),
                 "resolution": satellite.resolution_capability,
                 "orbit": satellite.alias,  # 卫星别名
                 "loadType": satellite.star_payload,
@@ -169,6 +173,7 @@ def get_all_satellites():
                 "name": satellite.sat_name,
                 "storage": round(satellite.storage, 2),
                 "battery": round(satellite.battery, 2),
+                "maxBattery": round(satellite.battery_capacity, 2),
                 "resolution": satellite.resolution_capability,
                 "orbit": satellite.alias,  # 卫星别名
                 "loadType": satellite.star_payload,
@@ -512,7 +517,8 @@ def get_all_finished_tasks():
 
 
 # 倍速
-@satellite_bp.route('/getCurrentMultiplierAndTime', methods=['GET'])
+@satellite_bp.route('/getCurrentMultiplierAndTime', methods=['POST'])
+@require_admin
 def get_current_multiplier_and_time():
     multiplier = request.args.get('multiplier', type=int)
     if multiplier is None or multiplier < 1:
@@ -545,10 +551,11 @@ def get_planning_status():
 # ===== 告警中心 =====
 @satellite_bp.route('/alerts', methods=['GET'])
 def get_alerts():
-    """告警列表，支持 level / category 过滤，按时间倒序返回"""
+    """告警列表，支持 level / category 过滤，按时间倒序返回。"""
     level = request.args.get('level')
     category = request.args.get('category')
-    alerts = list(getattr(occ, 'alert_log', []))
+    with occ.runtime_log_lock:
+        alerts = [dict(a) for a in occ.alert_log]
     if level:
         alerts = [a for a in alerts if a.get('level') == level]
     if category:
@@ -557,32 +564,51 @@ def get_alerts():
 
 
 @satellite_bp.route('/alerts/ack', methods=['POST'])
+@require_admin
 def ack_alert():
-    """确认告警：index 为告警在 alert_log 中的下标；index=-1 表示全部确认"""
+    """按稳定 ID 确认一条告警；all=true 时确认当前全部告警。"""
     data = request.get_json(silent=True) or {}
-    idx = data.get('index', -1)
-    log = getattr(occ, 'alert_log', [])
-    if idx == -1:
-        for a in log:
-            a['acknowledged'] = True
-    elif 0 <= idx < len(log):
-        log[idx]['acknowledged'] = True
-    else:
-        return jsonify({"error": "index 越界"}), 400
-    return "ok"
+    alert_id = data.get('id')
+    ack_all = data.get('all') is True
+    if not ack_all and (isinstance(alert_id, bool) or not isinstance(alert_id, int)):
+        return jsonify({"error": "id 必须为整数，或指定 all=true"}), 400
+    with occ.runtime_log_lock:
+        if ack_all:
+            for alert in occ.alert_log:
+                alert['acknowledged'] = True
+            return jsonify({"message": "ok"})
+        target = next((a for a in occ.alert_log if a.get('id') == alert_id), None)
+        if target is None:
+            return jsonify({"error": "告警不存在或已过期"}), 404
+        target['acknowledged'] = True
+    return jsonify({"message": "ok"})
 
 
 # ===== 运行回放 =====
 @satellite_bp.route('/replay/snapshots', methods=['GET'])
 def get_replay_snapshots():
-    """回放快照列表。?index=-1 返回全部；否则返回指定下标那条。最多保留 720 条"""
-    snaps = list(getattr(occ, 'state_snapshots', []))
+    """按稳定序号分批返回快照；before 用于加载更早记录，limit 最大为 120。"""
     idx = request.args.get('index', type=int)
-    if idx is None or idx == -1:
-        return {"count": len(snaps), "snapshots": snaps}
-    if 0 <= idx < len(snaps):
-        return {"count": len(snaps), "snapshot": snaps[idx]}
-    return jsonify({"error": "index 越界"}), 400
+    with occ.runtime_log_lock:
+        snaps = list(occ.state_snapshots)
+    if idx is not None and idx != -1:
+        if 0 <= idx < len(snaps):
+            return {"count": len(snaps), "snapshot": snaps[idx]}
+        return jsonify({"error": "index 越界"}), 400
+
+    before = request.args.get('before', type=int)
+    limit = request.args.get('limit', type=int)
+    if limit is None:
+        limit = 120
+    limit = max(1, min(limit, 120))
+    eligible = [s for s in snaps if before is None or s.get('seq', 0) < before]
+    page = eligible[-limit:]
+    return {
+        "count": len(snaps),
+        "returned": len(page),
+        "has_more": len(eligible) > len(page),
+        "snapshots": page,
+    }
 
 
 # 保存图片路径
@@ -669,6 +695,7 @@ def set_satellite_available(id):
 
 # 接收前端图片二进制并保存，将图片路径保存到数据库中
 @satellite_bp.route('/upload', methods=['POST'])
+@require_admin
 def download_image_binary():
     import secrets
 

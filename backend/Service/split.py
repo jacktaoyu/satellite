@@ -108,7 +108,8 @@ def split_area_target_into_point_targets(task, satellites=None):
                     parent_task_id=task.task_id,
                     cloud_thickness=task.cloud_thickness,
                     parent_location=task.target_location,
-                    parent_type=task.task_type
+                    parent_type=task.task_type,
+                    task_uuid=str(uuid.uuid5(uuid.UUID(task.task_uuid), str(subtask_id)))
                 )
                 task.subtasks.append(point_target)
                 task.subtask_ids.append(subtask_id)
@@ -182,7 +183,8 @@ def split_cycle_target_into_point_targets(task):
             parent_task_id=task.task_id,
             cloud_thickness=task.cloud_thickness,
             parent_location=task.target_location,
-            parent_type=task.task_type
+            parent_type=task.task_type,
+            task_uuid=str(uuid.uuid5(uuid.UUID(task.task_uuid), str(subtask_id)))
         )
         task.subtasks.append(point_target)
         task.subtask_ids.append(subtask_id)

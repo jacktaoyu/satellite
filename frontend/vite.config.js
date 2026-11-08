@@ -11,7 +11,7 @@ export default defineConfig({
   }, //指定开发服务器运行的地址和端口
   plugins: [
     vue(),
-    cesium()
+    cesium({ rebuildCesium: true })
   ], //指定要使用的插件
   resolve: {
     alias: {
@@ -28,6 +28,7 @@ export default defineConfig({
           'vendor-vue': ['vue', 'vue-router'],
           'vendor-element': ['element-plus', '@element-plus/icons-vue'],
           'vendor-echarts': ['echarts'],
+          'vendor-cesium': ['cesium'],
         },
       },
     },

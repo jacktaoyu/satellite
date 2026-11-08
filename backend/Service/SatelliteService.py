@@ -10,6 +10,7 @@ from datetime import datetime, timedelta, timezone
 from pyproj import Transformer
 from random import choice
 from config import sunlight_powers, INTER_VAL_TIME, GROUND_RATE, GROUND_STATION
+from utils.downlink_windows import normalize_downlink_windows
 
 # ----- 模块级 Skyfield / pyproj 单例缓存 -----
 _TIMESCALE = None
@@ -258,7 +259,9 @@ class Satellite:
                 #             self.battery = 0
             # 数传
             t = t.utc_datetime()
-            for dt in self.downlink_windows:
+            downlink_windows = normalize_downlink_windows(self.downlink_windows)
+            self.downlink_windows = downlink_windows
+            for dt in downlink_windows:
                 if dt[0] <= t < dt[1]:  # 如果当前时间处于数传窗口内
                     # 找出距离卫星星下点最近的地面站（考虑经度环绕）
                     nearest_station = None
@@ -287,7 +290,7 @@ class Satellite:
                         # 如果存储超过最大存储量，则设置为最大存储量
                         if self.storage > self.max_storage:
                             self.storage = self.max_storage
-                    self.downlink_windows = [w for w in self.downlink_windows if w[1] >= t]
+                    self.downlink_windows = [w for w in downlink_windows if w[1] >= t]
                     break
                 elif t < dt[0]:
                     if self.connecting_ground_station:

@@ -1,3 +1,6 @@
+import uuid
+from datetime import datetime
+
 from database import db
 
 
@@ -7,6 +10,8 @@ class NewTaskModel(db.Model):
     """
     __tablename__ = "t_new_task"
     id = db.Column(db.Integer, primary_key=True)  # 主键id
+    task_uuid = db.Column(db.String(36), nullable=True, unique=True,
+                          default=lambda: str(uuid.uuid4()))  # 稳定业务标识
     task_name = db.Column(db.String(255), nullable=True)  # 任务名
     priority = db.Column(db.Integer, nullable=False)  # 任务的优先级
     is_emergency = db.Column(db.Boolean, default=False)  # 是否是紧急任务
@@ -37,6 +42,7 @@ class NewTaskModel(db.Model):
         """将新任务模型对象转换为字典"""
         return {
             'id': self.id,  # 任务id
+            'taskUuid': self.task_uuid,  # 稳定业务标识
             'taskName': self.task_name,  # 任务名
             'priority': self.priority,  # 任务优先级
             'isEmergency': self.is_emergency,  # 是否是紧急任务
@@ -61,6 +67,8 @@ class OldTaskModel(db.Model):
     """
     __tablename__ = "t_old_task"
     id = db.Column(db.Integer, primary_key=True)  # 主键id
+    task_uuid = db.Column(db.String(36), nullable=True, unique=True,
+                          default=lambda: str(uuid.uuid4()))  # 稳定业务标识
     task_name = db.Column(db.String(255), nullable=True)  # 任务名
     priority = db.Column(db.Integer, nullable=False)  # 任务的优先级
     is_emergency = db.Column(db.Boolean, default=False)  # 是否是紧急任务
@@ -88,11 +96,14 @@ class OldTaskModel(db.Model):
     sub_locations = db.Column(db.Text, nullable=True)  # 子任务位置
     cloud_thickness = db.Column(db.Float, nullable=True, default=None)  # 云层厚度
     comment = db.Column(db.Text, nullable=True, default=None)  # 备注
+    result_payload = db.Column(db.Text, nullable=True)  # 客户端原始回传
+    result_received_at = db.Column(db.DateTime, nullable=True)  # 服务端接收时间
 
     def to_dict(self):
         """将旧任务模型对象转换为字典"""
         return {
             "id": self.id,  # 任务id
+            "taskUuid": self.task_uuid,  # 稳定业务标识
             "taskName": self.task_name,  # 任务名
             "priority": self.priority,  # 任务优先级
             "isEmergency": self.is_emergency,  # 是否是紧急任务
@@ -109,5 +120,18 @@ class OldTaskModel(db.Model):
             "height": self.height,  # 卫星高度
             "subLocations": self.sub_locations,  # 子任务位置
             'cloudThickness': self.cloud_thickness or None,  # 云层厚度
-            "comment": self.comment # 备注
+            "comment": self.comment,  # 备注
+            "resultPayload": self.result_payload,
+            "resultReceivedAt": str(self.result_received_at) if self.result_received_at else None
         }
+
+
+class TaskResultModel(db.Model):
+    """客户端结果收件记录，以稳定业务 UUID 幂等去重。"""
+    __tablename__ = "t_task_result"
+    task_uuid = db.Column(db.String(36), primary_key=True)
+    task_id = db.Column(db.Integer, nullable=True, index=True)
+    status = db.Column(db.String(32), nullable=False)
+    result_payload = db.Column(db.Text, nullable=False)
+    execution_duration_ms = db.Column(db.Integer, nullable=True)
+    received_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)

@@ -1,4 +1,5 @@
 import random
+import uuid
 import time
 from skyfield.api import wgs84, load
 
@@ -12,7 +13,8 @@ class Task:
     def __init__(self, task_id, task_name,
                  target_location, cluster_name, latest_end_time, earliest_start_time, sensor_type=None, resolution=0.5,
                  priority=1, boundary_points=None, is_emergency=False, task_type="点目标", cycle_time=3600,
-                 parent_task_id=None, appointment_time=None, cloud_thickness=0, parent_location=None, parent_type=None):
+                 parent_task_id=None, appointment_time=None, cloud_thickness=0, parent_location=None, parent_type=None,
+                 task_uuid=None):
         """
         初始化任务
         :param task_id: 任务ID
@@ -26,7 +28,8 @@ class Task:
         :param target_location: 观测位置 [纬度, 经度]
         """
         # 各种自定义属性
-        self.task_id = task_id  # 任务的唯一标识符
+        self.task_id = task_id  # 数据库数字标识符
+        self.task_uuid = task_uuid or str(uuid.uuid4())  # 跨重启、跨拆分稳定的业务标识符
         self.task_name = task_name
         self.priority = priority  # 任务的优先级
         self.is_emergency = is_emergency  # 是否是紧急任务
