@@ -145,11 +145,20 @@
     </el-card>
 
     <!-- 用例详情弹窗 -->
-    <el-dialog v-model="detailVisible" title="用例详情" width="600px" @closed="destroyCaseMap">
+    <el-dialog v-model="detailVisible" class="case-detail-dialog" title="用例详情" width="1080px" top="4vh" @closed="destroyCaseMap">
       <div v-if="currentCase" class="case-detail">
         <div class="detail-section">
           <h4 class="section-title">用例说明</h4>
           <p class="section-content">{{ currentCase.description }}</p>
+        </div>
+        <div class="detail-section" v-if="hasCaseMapData">
+          <h4 class="section-title">案例目标与结果地图</h4>
+          <div ref="caseMap" class="case-map"></div>
+          <div class="case-map-legend">
+            <span>青色：预置目标／区域</span>
+            <span>红色：最近归档执行结果</span>
+            <span>Esri 真实卫星影像</span>
+          </div>
         </div>
         <div class="detail-section" v-if="presetInfo">
           <h4 class="section-title">案例参数（预置文件真实数据）</h4>
@@ -186,10 +195,6 @@
             <el-descriptions-item label="图片路径" :span="2">{{ caseResult.path || '-' }}</el-descriptions-item>
             <el-descriptions-item label="位置（纬度，经度）" :span="2">{{ caseResult.targetLocation || '-' }}</el-descriptions-item>
           </el-descriptions>
-        </div>
-        <div class="detail-section" v-if="hasCaseMapData">
-          <h4 class="section-title">案例区域示意</h4>
-          <div ref="caseMap" class="case-map"></div>
         </div>
         <div class="detail-section">
           <h4 class="section-title">任务特点</h4>
@@ -437,8 +442,13 @@ export default {
         fullscreenButton: false,
         infoBox: false,
         selectionIndicator: false,
+        requestRenderMode: false,
+        maximumRenderTimeChange: Infinity,
         sceneMode: Cesium.SceneMode.SCENE2D  // 2D 平面示意更直观
       });
+      // 弹窗只在详情打开时存在，持续渲染并提高地表细节，避免低级瓦片放大模糊
+      this._caseViewer.scene.globe.maximumScreenSpaceError = 1;
+      this._caseViewer.resolutionScale = 1;
       this._caseViewer.imageryLayers.removeAll();
       // 底图：Esri 全球卫星影像（全球覆盖无占位图）+ 高德中文注记叠加层
       this._caseViewer.imageryLayers.addImageryProvider(new Cesium.UrlTemplateImageryProvider({
@@ -452,13 +462,14 @@ export default {
       }));
       this._caseViewer._cesiumWidget._creditContainer.style.display = 'none';
       const positions = [];
+      const oceanLabelOffsets = [[-110, -42], [110, -42], [-110, 42], [110, 42]];
       pts.forEach((p, idx) => {
         const c = Cesium.Cartesian3.fromDegrees(p[1], p[0]);  // [纬度, 经度] → (lon, lat)
         positions.push(c);
         this._caseViewer.entities.add({
           position: c,
           point: {
-            pixelSize: 10,
+            pixelSize: 12,
             color: Cesium.Color.fromCssColorString('#00f0ff'),
             outlineColor: Cesium.Color.WHITE,
             outlineWidth: 2
@@ -466,9 +477,16 @@ export default {
           // 海洋搜救案例：边界点标注为“搜救目标N”（对齐图42 设计稿）
           label: this.currentCase && this.currentCase.type === 'ocean' ? {
             text: `搜救目标${idx + 1}`,
-            font: '12px sans-serif',
-            pixelOffset: new Cesium.Cartesian2(0, -16),
-            fillColor: Cesium.Color.fromCssColorString('#00f0ff')
+            font: 'bold 16px "Microsoft YaHei", sans-serif',
+            pixelOffset: new Cesium.Cartesian2(...(oceanLabelOffsets[idx] || [0, -20])),
+            fillColor: Cesium.Color.fromCssColorString('#00f0ff'),
+            outlineColor: Cesium.Color.BLACK,
+            outlineWidth: 4,
+            style: Cesium.LabelStyle.FILL_AND_OUTLINE,
+            showBackground: true,
+            backgroundColor: Cesium.Color.fromCssColorString('#06192a').withAlpha(0.82),
+            backgroundPadding: new Cesium.Cartesian2(6, 4),
+            disableDepthTestDistance: Number.POSITIVE_INFINITY
           } : undefined
         });
       });
@@ -495,14 +513,25 @@ export default {
             })
           }
         });
-        // 轨迹标签放在中间位置
+        // 轨迹标签放在全部目标的几何中心，避开四周的目标点标注
+        const trackCenter = Cesium.Cartesian3.fromDegrees(
+          pts.reduce((sum, p) => sum + p[1], 0) / pts.length,
+          pts.reduce((sum, p) => sum + p[0], 0) / pts.length
+        );
         this._caseViewer.entities.add({
-          position: positions[Math.floor(positions.length / 2)],
+          position: trackCenter,
           label: {
             text: '目标轨迹',
-            font: '12px sans-serif',
-            pixelOffset: new Cesium.Cartesian2(0, 14),
-            fillColor: Cesium.Color.fromCssColorString('#7cffb2')
+            font: 'bold 16px "Microsoft YaHei", sans-serif',
+            pixelOffset: new Cesium.Cartesian2(0, 0),
+            fillColor: Cesium.Color.fromCssColorString('#7cffb2'),
+            outlineColor: Cesium.Color.BLACK,
+            outlineWidth: 4,
+            style: Cesium.LabelStyle.FILL_AND_OUTLINE,
+            showBackground: true,
+            backgroundColor: Cesium.Color.fromCssColorString('#06192a').withAlpha(0.82),
+            backgroundPadding: new Cesium.Cartesian2(6, 4),
+            disableDepthTestDistance: Number.POSITIVE_INFINITY
           }
         });
       }
@@ -512,7 +541,7 @@ export default {
         this._caseViewer.entities.add({
           position: Cesium.Cartesian3.fromDegrees(p[1], p[0]),
           point: {
-            pixelSize: 12,
+            pixelSize: 14,
             color: Cesium.Color.fromCssColorString('#ff6b6b'),
             outlineColor: Cesium.Color.WHITE,
             outlineWidth: 2
@@ -520,22 +549,30 @@ export default {
           // 多点结果与预置点位置重合时不再加文字标签（预置点的“搜救目标N”标签已标识），单点显示任务名
           label: resultPts.length > 1 ? undefined : {
             text: resultName,
-            font: '12px sans-serif',
+            font: 'bold 16px "Microsoft YaHei", sans-serif',
             pixelOffset: new Cesium.Cartesian2(0, -18),
-            fillColor: Cesium.Color.fromCssColorString('#ff6b6b')
+            fillColor: Cesium.Color.fromCssColorString('#ff6b6b'),
+            outlineColor: Cesium.Color.BLACK,
+            outlineWidth: 4,
+            style: Cesium.LabelStyle.FILL_AND_OUTLINE
           }
         });
       });
-      // 视野对准案例区域（四周留 0.5° 边距，让小区域特征更清晰）
+      // 按目标实际跨度聚焦，避免固定大范围视野把区域边界和目标点缩得过小
       const allPts = pts.concat(resultPts);
       const lats = allPts.map(p => p[0]);
       const lons = allPts.map(p => p[1]);
+      const latSpan = Math.max(...lats) - Math.min(...lats);
+      const lonSpan = Math.max(...lons) - Math.min(...lons);
+      const latPadding = Math.max(0.08, latSpan * 0.35);
+      const lonPadding = Math.max(0.08, lonSpan * 0.35);
       this._caseViewer.camera.setView({
         destination: Cesium.Rectangle.fromDegrees(
-          Math.min(...lons) - 0.5, Math.min(...lats) - 0.5,
-          Math.max(...lons) + 0.5, Math.max(...lats) + 0.5
+          Math.min(...lons) - lonPadding, Math.min(...lats) - latPadding,
+          Math.max(...lons) + lonPadding, Math.max(...lats) + latPadding
         )
       });
+      this._caseViewer.scene.requestRender();
     },
 
     // 销毁案例示意图 viewer，释放 WebGL 上下文
@@ -799,8 +836,34 @@ export default {
 }
 
 /* 用例详情 */
+:deep(.case-detail-dialog) {
+  max-width: 94vw;
+}
+
+:deep(.case-detail-dialog .el-dialog__header) {
+  padding: 18px 22px 12px;
+  border-bottom: 1px solid rgba(0, 220, 255, 0.16);
+}
+
+:deep(.case-detail-dialog .el-dialog__title) {
+  font-size: 20px;
+  font-weight: 600;
+}
+
+:deep(.case-detail-dialog .el-dialog__body) {
+  max-height: calc(88vh - 64px);
+  padding: 16px 22px 24px;
+  overflow-y: auto;
+}
+
+:deep(.case-detail-dialog .el-descriptions__label),
+:deep(.case-detail-dialog .el-descriptions__content) {
+  font-size: 14px;
+  line-height: 1.55;
+}
+
 .case-detail {
-  padding: 10px 0;
+  padding: 0;
 }
 
 .detail-section {
@@ -811,48 +874,58 @@ export default {
   margin-bottom: 0;
 }
 
-/* 案例区域示意图 */
+/* 案例目标与归档结果地图 */
 .case-map {
-  height: 280px;
+  height: 400px;
   width: 100%;
-  border-radius: 4px;
+  border: 1px solid rgba(0, 220, 255, 0.28);
+  border-radius: 5px;
   overflow: hidden;
+}
+
+.case-map-legend {
+  display: flex;
+  gap: 22px;
+  padding-top: 10px;
+  color: #9fc6e8;
+  font-size: 13px;
 }
 
 /* 案例坐标点标签 */
 .point-tag {
   display: inline-block;
-  margin: 2px 6px 2px 0;
-  padding: 1px 6px;
+  margin: 3px 8px 3px 0;
+  padding: 3px 8px;
   background: rgba(64, 158, 255, 0.1);
   border-radius: 3px;
   font-family: 'Courier New', monospace;
-  font-size: 12px;
+  font-size: 14px;
 }
 
 .section-title {
   margin: 0 0 12px 0;
-  font-size: 15px;
+  font-size: 18px;
   font-weight: 600;
-  color: #303133;
+  color: #d9f3ff;
 }
 
 .section-content {
   margin: 0;
-  font-size: 14px;
-  color: #606266;
-  line-height: 1.6;
+  font-size: 16px;
+  color: #b8d9ed;
+  line-height: 1.75;
 }
 
 .feature-list {
   margin: 0;
   padding-left: 20px;
-  color: #606266;
+  color: #b8d9ed;
+  font-size: 15px;
 }
 
 .feature-list li {
   margin-bottom: 8px;
-  line-height: 1.5;
+  line-height: 1.65;
 }
 
 .feature-list li:last-child {
@@ -926,6 +999,15 @@ export default {
     flex-direction: column;
     align-items: flex-start;
     gap: 8px;
+  }
+
+  .case-map {
+    height: 320px;
+  }
+
+  .case-map-legend {
+    flex-direction: column;
+    gap: 5px;
   }
 }
 </style>

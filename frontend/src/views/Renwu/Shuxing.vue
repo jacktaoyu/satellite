@@ -328,9 +328,92 @@
       </template>
     </el-dialog>
 
-    <!-- 任务详情弹窗 -->
-    <el-dialog v-model="detailVisible" class="task-dialog" title="任务详情" width="700px">
-      <el-descriptions :column="2" border v-if="currentTask">
+    <!-- 任务详情弹窗：历史任务展示真实结果、目标地图与执行时间线 -->
+    <el-dialog
+      v-model="detailVisible"
+      class="task-dialog"
+      :class="{ 'task-result-dialog': currentTask && currentTask.source === 'old' }"
+      :title="currentTask && currentTask.source === 'old' ? '任务执行结果' : '任务详情'"
+      :width="currentTask && currentTask.source === 'old' ? '1180px' : '700px'"
+      top="4vh"
+      @opened="initTaskResultMap"
+      @closed="destroyTaskResultMap"
+    >
+      <div v-if="currentTask && currentTask.source === 'old'" class="task-result-layout">
+        <section class="result-summary-panel">
+          <div class="result-status" :class="{ 'is-failed': currentTask.status !== 'Success' }">
+            <el-icon :size="30"><CircleCheck v-if="currentTask.status === 'Success'" /><CircleClose v-else /></el-icon>
+            <div>
+              <strong>{{ currentTask.status === 'Success' ? '任务执行成功' : '任务执行失败' }}</strong>
+              <span>{{ currentTask.task_name || '-' }}</span>
+            </div>
+            <el-tag :type="currentTask.status === 'Success' ? 'success' : 'danger'" effect="dark">
+              {{ currentTask.status === 'Success' ? 'Success' : (currentTask.status || 'Failed') }}
+            </el-tag>
+          </div>
+
+          <div class="result-section">
+            <h3>目标参数</h3>
+            <dl class="result-facts">
+              <div><dt>目标类型</dt><dd>{{ currentTask.type || '-' }}</dd></div>
+              <div><dt>目标位置</dt><dd>{{ currentTask.targetLocation || '未提供坐标' }}</dd></div>
+              <div><dt>执行卫星</dt><dd class="satellite-value">{{ currentTask.satellite_name || '未分配' }}</dd></div>
+              <div><dt>载荷 / 分辨率</dt><dd>{{ currentTask.payload || '-' }} / {{ currentTask.resolution === '' ? '-' : currentTask.resolution + ' m' }}</dd></div>
+            </dl>
+          </div>
+
+          <div class="result-section execution-timeline">
+            <h3>执行完成时间线</h3>
+            <el-timeline>
+              <el-timeline-item type="primary" :hollow="true" :timestamp="currentTask.startTime || '-'">
+                <strong>任务开始</strong>
+                <span>任务进入卫星执行流程</span>
+              </el-timeline-item>
+              <el-timeline-item type="primary" :timestamp="currentTask.endTime || '-'">
+                <strong>卫星执行完成</strong>
+                <span>{{ currentTask.satellite_name || '执行卫星' }} 完成{{ currentTask.type || '目标' }}观测</span>
+              </el-timeline-item>
+              <el-timeline-item :type="currentTask.status === 'Success' ? 'success' : 'danger'" :timestamp="currentTask.resultReceivedAt || currentTask.endTime || '-'">
+                <strong>结果反馈</strong>
+                <span>控制中心已接收并归档客户端执行结果</span>
+              </el-timeline-item>
+            </el-timeline>
+          </div>
+
+          <div class="result-identity">
+            <span>业务 UUID</span>
+            <code>{{ currentTask.task_uuid || '-' }}</code>
+          </div>
+        </section>
+
+        <section class="result-map-panel">
+          <div class="result-map-heading">
+            <div>
+              <h3>目标观测结果</h3>
+              <p>{{ resultTargetDescription }}</p>
+            </div>
+            <span>真实卫星影像</span>
+          </div>
+          <div v-if="hasTaskMapData" ref="taskResultMap" class="task-result-map"></div>
+          <div v-else class="task-result-map-empty">
+            <el-icon :size="30"><MapLocation /></el-icon>
+            <strong>该任务未提供有效目标坐标</strong>
+            <span>结果数据已归档，但无法绘制目标位置</span>
+          </div>
+          <div class="map-legend">
+            <span><i class="legend-result"></i>{{ resultTargetDescription }}</span>
+            <span>Esri World Imagery · 高德注记</span>
+          </div>
+        </section>
+
+        <el-collapse class="result-raw-data">
+          <el-collapse-item title="查看客户端原始回传数据" name="payload">
+            <pre class="result-payload">{{ formatResultPayload(currentTask.resultPayload) }}</pre>
+          </el-collapse-item>
+        </el-collapse>
+      </div>
+
+      <el-descriptions :column="2" border v-else-if="currentTask">
         <el-descriptions-item label="任务ID">{{ currentTask.id }}</el-descriptions-item>
         <el-descriptions-item label="业务UUID" :span="2">{{ currentTask.task_uuid || '-' }}</el-descriptions-item>
         <el-descriptions-item label="任务名称">{{ currentTask.task_name }}</el-descriptions-item>
@@ -348,10 +431,6 @@
         <el-descriptions-item label="开始时间">{{ currentTask.startTime }}</el-descriptions-item>
         <el-descriptions-item label="结束时间">{{ currentTask.endTime || '-' }}</el-descriptions-item>
         <el-descriptions-item label="云层厚度">{{ currentTask.cloudThickness || '-' }}</el-descriptions-item>
-        <el-descriptions-item v-if="currentTask.source === 'old'" label="结果接收时间" :span="2">{{ currentTask.resultReceivedAt || '-' }}</el-descriptions-item>
-        <el-descriptions-item v-if="currentTask.source === 'old'" label="客户端回传" :span="2">
-          <pre class="result-payload">{{ formatResultPayload(currentTask.resultPayload) }}</pre>
-        </el-descriptions-item>
         <el-descriptions-item label="备注" :span="2">{{ currentTask.comment || '无' }}</el-descriptions-item>
       </el-descriptions>
       <template #footer>
@@ -364,16 +443,17 @@
 
 <script>
 import { ElMessage, ElMessageBox } from 'element-plus';
+import * as Cesium from 'cesium';
 import echarts from '@/utils/echarts.js';
 import { utcToTimestamp } from '@/utils/time.js';
 import { 
-  Search, Refresh, Plus, View, Delete, Edit, VideoPlay, VideoPause, Download, CircleClose, Close
+  Search, Refresh, Plus, View, Delete, Edit, VideoPlay, VideoPause, Download, CircleClose, CircleCheck, Close, MapLocation
 } from '@element-plus/icons-vue';
 
 export default {
   name: 'TaskManage',
   components: {
-    Search, Refresh, Plus, View, Delete, Edit, VideoPlay, VideoPause, Download, CircleClose, Close
+    Search, Refresh, Plus, View, Delete, Edit, VideoPlay, VideoPause, Download, CircleClose, CircleCheck, Close, MapLocation
   },
   data() {
     return {
@@ -458,6 +538,21 @@ export default {
         return map[this.taskForm.sensorType];
       }
       return [];
+    },
+    taskTargetPoints() {
+      if (!this.currentTask || this.currentTask.source !== 'old') return [];
+      return this.parseCoordinates(this.currentTask.targetLocation)
+        .map(point => point.split(',').map(value => Number(value.trim())))
+        .filter(point => point.length === 2 && Number.isFinite(point[0]) && Number.isFinite(point[1])
+          && Math.abs(point[0]) <= 90 && Math.abs(point[1]) <= 180);
+    },
+    hasTaskMapData() {
+      return this.taskTargetPoints.length > 0;
+    },
+    resultTargetDescription() {
+      if (!this.currentTask) return '目标结果';
+      const isArea = ['区域目标', '广域目标'].includes(this.currentTask.type) || this.taskTargetPoints.length > 2;
+      return isArea ? '区域边界与观测标注' : '点目标与观测标注';
     }
   },
   created() {
@@ -484,8 +579,9 @@ export default {
   beforeUnmount() {
     if (this._pollTimer) { clearInterval(this._pollTimer); this._pollTimer = null; }
     if (this._onVisibility) { document.removeEventListener('visibilitychange', this._onVisibility); this._onVisibility = null; }
-    // 销毁甘特图实例，释放图表资源
+    // 销毁甘特图和结果地图实例，释放图表与 WebGL 资源
     if (this._ganttInst) { this._ganttInst.dispose(); this._ganttInst = null; }
+    this.destroyTaskResultMap();
   },
   methods: {
     normalizeTask(task = {}, source = 'new') {
@@ -1158,6 +1254,118 @@ export default {
       this.detailVisible = true;
     },
 
+    // 历史结果地图使用任务真实坐标，点目标显示标注，区域目标显示边界和任务名
+    initTaskResultMap() {
+      this.destroyTaskResultMap();
+      const pts = this.taskTargetPoints;
+      const el = this.$refs.taskResultMap;
+      if (!el || !pts.length) return;
+      this._taskResultViewer = new Cesium.Viewer(el, {
+        baseLayer: false,
+        animation: false,
+        timeline: false,
+        geocoder: false,
+        homeButton: false,
+        sceneModePicker: false,
+        baseLayerPicker: false,
+        navigationHelpButton: false,
+        fullscreenButton: false,
+        infoBox: false,
+        selectionIndicator: false,
+        requestRenderMode: true,
+        maximumRenderTimeChange: Infinity,
+        sceneMode: Cesium.SceneMode.SCENE2D
+      });
+      const viewer = this._taskResultViewer;
+      viewer.imageryLayers.removeAll();
+      viewer.imageryLayers.addImageryProvider(new Cesium.UrlTemplateImageryProvider({
+        url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+        maximumLevel: 13
+      }));
+      viewer.imageryLayers.addImageryProvider(new Cesium.UrlTemplateImageryProvider({
+        url: 'https://webst0{s}.is.autonavi.com/appmaptile?style=8&x={x}&y={y}&z={z}',
+        subdomains: ['1', '2', '3', '4'],
+        maximumLevel: 13
+      }));
+      if (viewer._cesiumWidget?._creditContainer) {
+        viewer._cesiumWidget._creditContainer.style.display = 'none';
+      }
+      viewer.scene.backgroundColor = Cesium.Color.fromCssColorString('#07111f');
+
+      const positions = pts.map(point => Cesium.Cartesian3.fromDegrees(point[1], point[0]));
+      const isArea = ['区域目标', '广域目标'].includes(this.currentTask.type) || pts.length > 2;
+      const labelStyle = {
+        font: 'bold 16px "Microsoft YaHei", sans-serif',
+        fillColor: Cesium.Color.WHITE,
+        outlineColor: Cesium.Color.BLACK,
+        outlineWidth: 4,
+        style: Cesium.LabelStyle.FILL_AND_OUTLINE,
+        pixelOffset: new Cesium.Cartesian2(0, -24),
+        disableDepthTestDistance: Number.POSITIVE_INFINITY
+      };
+      positions.forEach((position, index) => {
+        viewer.entities.add({
+          position,
+          point: {
+            pixelSize: 14,
+            color: Cesium.Color.fromCssColorString('#ff5f56'),
+            outlineColor: Cesium.Color.WHITE,
+            outlineWidth: 3,
+            disableDepthTestDistance: Number.POSITIVE_INFINITY
+          },
+          label: !isArea ? {
+            ...labelStyle,
+            text: pts.length === 1 ? (this.currentTask.task_name || '观测目标') : `目标点 ${index + 1}`
+          } : undefined
+        });
+      });
+      if (isArea && positions.length > 2) {
+        viewer.entities.add({
+          polygon: {
+            hierarchy: new Cesium.PolygonHierarchy(positions),
+            material: Cesium.Color.fromCssColorString('#00dcff').withAlpha(0.24)
+          }
+        });
+        viewer.entities.add({
+          polyline: {
+            positions: positions.concat(positions[0]),
+            width: 3,
+            material: Cesium.Color.fromCssColorString('#00f0ff'),
+            clampToGround: true
+          }
+        });
+        const center = pts.reduce((acc, point) => [acc[0] + point[0] / pts.length, acc[1] + point[1] / pts.length], [0, 0]);
+        viewer.entities.add({
+          position: Cesium.Cartesian3.fromDegrees(center[1], center[0]),
+          label: {
+            ...labelStyle,
+            text: `${this.currentTask.task_name || '任务'} · 观测区域`,
+            pixelOffset: new Cesium.Cartesian2(0, 0)
+          }
+        });
+      }
+      const lats = pts.map(point => point[0]);
+      const lons = pts.map(point => point[1]);
+      const latSpan = Math.max(...lats) - Math.min(...lats);
+      const lonSpan = Math.max(...lons) - Math.min(...lons);
+      const latPadding = Math.max(0.12, latSpan * 0.35);
+      const lonPadding = Math.max(0.12, lonSpan * 0.35);
+      viewer.camera.setView({
+        destination: Cesium.Rectangle.fromDegrees(
+          Math.min(...lons) - lonPadding, Math.min(...lats) - latPadding,
+          Math.max(...lons) + lonPadding, Math.max(...lats) + latPadding
+        )
+      });
+      viewer.scene.requestRender();
+    },
+
+    destroyTaskResultMap() {
+      if (this._taskResultViewer) {
+        if (!this._taskResultViewer.isDestroyed()) this._taskResultViewer.destroy();
+        this._taskResultViewer = null;
+      }
+    },
+
     formatResultPayload(payload) {
       if (!payload) return '暂无回传数据';
       if (typeof payload !== 'string') return JSON.stringify(payload, null, 2);
@@ -1367,6 +1575,279 @@ export default {
   margin-top: 16px;
 }
 
+/* 历史任务执行结果：左侧结果与时间线，右侧真实目标影像 */
+:deep(.task-result-dialog) {
+  max-width: 94vw;
+}
+
+:deep(.task-result-dialog .el-dialog__header) {
+  padding: 18px 22px 12px;
+  border-bottom: 1px solid rgba(0, 220, 255, 0.16);
+}
+
+:deep(.task-result-dialog .el-dialog__title) {
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+
+:deep(.task-result-dialog .el-dialog__body) {
+  max-height: calc(88vh - 126px);
+  padding: 14px 20px 6px;
+  overflow-y: auto;
+}
+
+:deep(.task-result-dialog .el-dialog__footer) {
+  padding: 12px 20px 16px;
+  border-top: 1px solid rgba(0, 220, 255, 0.12);
+}
+
+.task-result-layout {
+  display: grid;
+  grid-template-columns: 380px minmax(0, 1fr);
+  gap: 14px 20px;
+}
+
+.result-summary-panel,
+.result-map-panel {
+  min-width: 0;
+}
+
+.result-status {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 68px;
+  padding: 12px 14px;
+  color: #7cffb2;
+  background: rgba(40, 180, 120, 0.1);
+  border: 1px solid rgba(124, 255, 178, 0.3);
+  border-radius: 6px;
+}
+
+.result-status.is-failed {
+  color: #ff8f8f;
+  background: rgba(255, 95, 86, 0.08);
+  border-color: rgba(255, 95, 86, 0.3);
+}
+
+.result-status > div {
+  flex: 1;
+  min-width: 0;
+}
+
+.result-status strong,
+.result-status span {
+  display: block;
+}
+
+.result-status strong {
+  margin-bottom: 4px;
+  font-size: 19px;
+}
+
+.result-status span {
+  overflow: hidden;
+  color: #d7e9f8;
+  font-size: 14px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.result-section {
+  margin-top: 16px;
+}
+
+.result-section h3,
+.result-map-heading h3 {
+  margin: 0 0 10px;
+  color: #d9f3ff;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.result-facts {
+  margin: 0;
+}
+
+.result-facts > div {
+  display: grid;
+  grid-template-columns: 98px minmax(0, 1fr);
+  gap: 10px;
+  padding: 8px 0;
+  border-bottom: 1px solid rgba(159, 198, 232, 0.12);
+}
+
+.result-facts dt,
+.result-facts dd {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.45;
+}
+
+.result-facts dt {
+  color: #8fb3ce;
+}
+
+.result-facts dd {
+  color: #e2f1fc;
+  overflow-wrap: anywhere;
+}
+
+.result-facts .satellite-value {
+  color: #00dcff;
+  font-weight: 600;
+}
+
+.execution-timeline {
+  padding-top: 2px;
+}
+
+.execution-timeline :deep(.el-timeline) {
+  padding-left: 4px;
+}
+
+.execution-timeline :deep(.el-timeline-item) {
+  padding-bottom: 12px;
+}
+
+.execution-timeline :deep(.el-timeline-item__timestamp) {
+  color: #8fb3ce;
+  font-size: 12px;
+}
+
+.execution-timeline :deep(.el-timeline-item__content) {
+  color: #d9edfb;
+  font-size: 14px;
+}
+
+.execution-timeline strong,
+.execution-timeline span {
+  display: block;
+}
+
+.execution-timeline span {
+  margin-top: 3px;
+  color: #9fc6e8;
+  font-size: 12px;
+}
+
+.result-identity {
+  padding: 9px 11px;
+  background: rgba(0, 220, 255, 0.05);
+  border-radius: 4px;
+}
+
+.result-identity span,
+.result-identity code {
+  display: block;
+}
+
+.result-identity span {
+  margin-bottom: 4px;
+  color: #8fb3ce;
+  font-size: 12px;
+}
+
+.result-identity code {
+  color: #b8d9ed;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.result-map-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 52px;
+}
+
+.result-map-heading h3 {
+  margin-bottom: 4px;
+  font-size: 18px;
+}
+
+.result-map-heading p {
+  margin: 0;
+  color: #9fc6e8;
+  font-size: 13px;
+}
+
+.result-map-heading > span {
+  flex-shrink: 0;
+  padding: 4px 8px;
+  color: #00dcff;
+  background: rgba(0, 220, 255, 0.08);
+  border: 1px solid rgba(0, 220, 255, 0.24);
+  border-radius: 3px;
+  font-size: 12px;
+}
+
+.task-result-map,
+.task-result-map-empty {
+  width: 100%;
+  height: 430px;
+  overflow: hidden;
+  background: #07111f;
+  border: 1px solid rgba(0, 220, 255, 0.28);
+  border-radius: 5px;
+}
+
+.task-result-map-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  color: #8fb3ce;
+}
+
+.task-result-map-empty strong {
+  color: #d9edfb;
+  font-size: 16px;
+}
+
+.task-result-map-empty span {
+  font-size: 13px;
+}
+
+.map-legend {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding-top: 9px;
+  color: #8fb3ce;
+  font-size: 12px;
+}
+
+.map-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.legend-result {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  background: #ff5f56;
+  border: 2px solid #fff;
+  border-radius: 50%;
+}
+
+.result-raw-data {
+  grid-column: 1 / -1;
+  border-top: 1px solid rgba(0, 220, 255, 0.12);
+  border-bottom: 0;
+}
+
+.result-raw-data :deep(.el-collapse-item__header) {
+  height: 38px;
+  color: #9fc6e8;
+  font-size: 13px;
+}
+
 .result-payload {
   margin: 0;
   max-height: 180px;
@@ -1419,6 +1900,20 @@ export default {
   }
   :deep(.task-dialog .el-descriptions__cell) {
     overflow-wrap: anywhere;
+  }
+  .task-result-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .task-result-map,
+  .task-result-map-empty {
+    height: 340px;
+  }
+  .result-map-heading,
+  .map-legend {
+    flex-direction: column;
+  }
+  .result-raw-data {
+    grid-column: 1;
   }
 }
 

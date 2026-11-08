@@ -9,8 +9,10 @@ import threading
 import time
 import urllib.request
 from datetime import datetime
+from io import BytesIO
 from pathlib import Path
 
+from PIL import Image, ImageFilter, ImageStat
 from playwright.sync_api import sync_playwright
 
 BACKEND_DIR = Path(__file__).resolve().parents[1] / 'backend'
@@ -50,6 +52,29 @@ def wait_until(check, timeout, interval=1.0, description='条件'):
             last_error = error
         time.sleep(interval)
     raise TimeoutError(f'等待{description}超时；最后错误：{last_error}')
+
+
+def wait_for_satellite_imagery(locator, timeout=90000):
+    """用实际地图像素连续确认影像已加载，且不是放大的低清瓦片。"""
+    detail_scores = []
+    edge_scores = []
+
+    def imagery_loaded():
+        image = Image.open(BytesIO(locator.screenshot(type='png'))).convert('L')
+        detail_scores.append(ImageStat.Stat(image).stddev[0])
+        edge_scores.append(ImageStat.Stat(image.filter(ImageFilter.FIND_EDGES)).mean[0])
+        return (
+            len(detail_scores) >= 2
+            and min(detail_scores[-2:]) >= 24
+            and min(edge_scores[-2:]) >= 7
+        )
+
+    wait_until(imagery_loaded, timeout, interval=1.0, description='清晰真实卫星影像加载并稳定')
+    print(
+        f'卫星影像已稳定：画面细节 {detail_scores[-1]:.1f}，边缘细节 {edge_scores[-1]:.1f}',
+        flush=True,
+    )
+    return detail_scores[-1]
 
 
 def task_page(base_url, token, task_name, historical=False):
@@ -131,10 +156,19 @@ def show_history_result(page, task_name, kind):
     page.wait_for_timeout(2500)
     page.locator('.el-table__body-wrapper tbody tr').first.wait_for(state='visible', timeout=30000)
     page.screenshot(path=str(WORK_DIR / 'evidence' / f'{kind}_history.png'), full_page=True)
+    page.evaluate('performance.clearResourceTimings()')
     page.get_by_role('button', name='详情', exact=True).first.click()
-    dialog = page.locator('.el-dialog:visible').filter(has_text='任务详情').last
+    dialog = page.locator('.el-dialog:visible').filter(has_text='任务执行结果').last
     dialog.wait_for(state='visible', timeout=15000)
-    payload_label = dialog.get_by_text('客户端回传', exact=True)
+    dialog.get_by_text('执行完成时间线', exact=True).wait_for(state='visible', timeout=10000)
+    result_map = dialog.locator('.task-result-map')
+    result_map.scroll_into_view_if_needed()
+    result_map.locator('canvas').wait_for(state='visible', timeout=30000)
+    wait_for_satellite_imagery(result_map)
+    page.wait_for_timeout(5000)
+    page.screenshot(path=str(WORK_DIR / 'evidence' / f'{kind}_result_map.png'), full_page=True)
+    payload_label = dialog.get_by_text('查看客户端原始回传数据', exact=True)
+    payload_label.click()
     payload_label.scroll_into_view_if_needed()
     page.wait_for_timeout(1500)
     payload = dialog.locator('.result-payload').inner_text()
@@ -142,7 +176,7 @@ def show_history_result(page, task_name, kind):
     if result.get('result') != '成功' or result.get('execution_duration_ms', 0) <= 0:
         raise AssertionError(f'历史客户端回传不完整：{result}')
     page.screenshot(path=str(WORK_DIR / 'evidence' / f'{kind}_result.png'), full_page=True)
-    page.wait_for_timeout(5000)
+    page.wait_for_timeout(3000)
     return result
 
 
@@ -283,7 +317,7 @@ def record_session(browser, base_url, password, kind, mobile):
         context.close()
     webm_path = WORK_DIR / 'videos' / f'{kind}_{RUN_ID}.webm'
     video.save_as(str(webm_path))
-    mp4_path = OUTPUT_DIR / ('手机完整功能演示.mp4' if mobile else '桌面完整功能演示.mp4')
+    mp4_path = OUTPUT_DIR / (f'手机完整功能演示_{RUN_ID}.mp4' if mobile else f'桌面完整功能演示_{RUN_ID}.mp4')
     subprocess.run([
         'ffmpeg', '-hide_banner', '-loglevel', 'warning', '-n',
         '-i', str(webm_path), '-an', '-c:v', 'libx264', '-preset', 'medium',

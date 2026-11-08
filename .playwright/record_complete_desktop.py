@@ -15,7 +15,7 @@ from playwright.sync_api import sync_playwright
 
 from record_full_flow import (
     BACKEND_DIR, PROJECT_DIR, WORK_DIR, OUTPUT_DIR,
-    SatelliteClient, create_task, login, request_json, task_page, wait_until,
+    SatelliteClient, create_task, login, request_json, task_page, wait_for_satellite_imagery, wait_until,
 )
 
 RUN_ID = datetime.now().strftime('%Y%m%d_%H%M%S') + f'_{os.getpid()}'
@@ -229,13 +229,21 @@ def show_cases(page, sections):
     open_menu(page, '示范用例', '/satellite/yongli', ready_selector='.case-demo')
     capture(page, '20_demo_cases', sections)
     for index, name in enumerate(('21_case_point_detail', '22_case_area_detail', '23_case_ocean_detail')):
+        page.evaluate('performance.clearResourceTimings()')
         page.get_by_role('button', name='查看详情', exact=True).nth(index).click()
         dialog = page.locator('.el-dialog:visible').filter(has_text='用例详情').last
         dialog.wait_for(state='visible', timeout=20000)
-        hold(page, 3500)
-        page.get_by_text('执行流程', exact=True).last.scroll_into_view_if_needed()
-        hold(page, 1500)
+        case_map = dialog.locator('.case-map')
+        case_map.wait_for(state='visible', timeout=30000)
+        case_map.locator('canvas').wait_for(state='visible', timeout=30000)
+        wait_for_satellite_imagery(case_map)
+        hold(page, 6000)
         capture(page, name, sections)
+        if dialog.get_by_text('最近执行结果（归档数据）', exact=True).count():
+            dialog.get_by_text('最近执行结果（归档数据）', exact=True).scroll_into_view_if_needed()
+            hold(page, 3500)
+        page.get_by_text('执行流程', exact=True).last.scroll_into_view_if_needed()
+        hold(page, 2000)
         close_dialog(page, dialog)
 
 
@@ -440,14 +448,20 @@ def show_history(page, task_name, sections):
     row.wait_for(state='visible', timeout=30000)
     hold(page, 2500)
     capture(page, '30_task_history_success', sections)
+    page.evaluate('performance.clearResourceTimings()')
     row.get_by_role('button', name='详情', exact=True).click()
-    dialog = page.locator('.el-dialog:visible').filter(has_text='任务详情').last
+    dialog = page.locator('.el-dialog:visible').filter(has_text='任务执行结果').last
     dialog.wait_for(state='visible', timeout=15000)
-    hold(page, 3500)
+    dialog.get_by_text('执行完成时间线', exact=True).wait_for(state='visible', timeout=10000)
+    result_map = dialog.locator('.task-result-map')
+    result_map.locator('canvas').wait_for(state='visible', timeout=30000)
+    wait_for_satellite_imagery(result_map)
+    hold(page, 8000)
     capture(page, '31_task_result_uuid_and_satellite', sections)
-    payload_label = dialog.get_by_text('客户端回传', exact=True)
+    payload_label = dialog.get_by_text('查看客户端原始回传数据', exact=True)
+    payload_label.click()
     payload_label.scroll_into_view_if_needed()
-    hold(page, 5500)
+    hold(page, 3500)
     payload = dialog.locator('.result-payload').inner_text()
     result = json.loads(payload)
     if result.get('result') != '成功' or result.get('execution_duration_ms', 0) <= 0:
