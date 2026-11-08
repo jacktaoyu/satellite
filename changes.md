@@ -3335,3 +3335,51 @@ ffprobe -v error -show_entries format=duration,size:stream=codec_name,width,heig
 ffmpeg -v error -i /mnt/agents/output/桌面完整功能演示.mp4 -f null -
 ffmpeg -v error -i /mnt/agents/output/手机完整功能演示.mp4 -f null -
 ```
+
+
+## 桌面执行片段单独交付（2026-11-08）
+- 从 `桌面完整功能演示.mp4` 的 105 秒处截取至结束，生成 `/mnt/agents/output/桌面任务执行与结果.mp4`，时长 51.04 秒，便于直接查看执行过程，不代替完整功能演示。
+- 片段包含 1%、23%、46%、69%、94% 的执行进度、任务完成、历史 Success 与客户端回传详情；未添加字幕。
+- 异常/边界检查：完整 ffmpeg 解码无错误，关键帧复核包含执行中和历史结果，源视频保持不变。
+
+
+## 桌面完整视频防缓存重导出（2026-11-08）
+- 用户收到的播放器内容仍为总时长 1:42、16 条任务的旧视频；核对源文件 `桌面完整功能演示.mp4` 为 156.04 秒、单任务闭环，42 秒画面与旧视频不同。
+- 为避免文件名或播放器缓存，重新导出为 `/mnt/agents/output/桌面全流程演示_任务真实执行_20261108.mp4`，保持完整 156.04 秒内容，1440×900、H.264、无音轨。
+- 完整解码检查通过，源文件与旧视频均保留。
+
+
+## 全系统连续录屏与空归档状态修复（2026-11-08）
+
+【修改】`backend/blueprint/Task.py`：示范用例尚无执行归档时，`/tasks/caseResult/<case_type>` 对 point、area、ocean 返回 HTTP 200、`status: success`、`data: null` 和“暂无该用例的执行归档数据”，不再把正常空状态作为 404 异常；未知用例类型仍返回 400。
+【修改】`frontend/src/views/Yongli.vue`：注释与空归档契约保持一致，前端继续以 `data: null` 展示暂无归档，不产生请求异常。
+【测试】`backend/test_api_and_windows_regression.py` 新增三类用例空归档与未知类型回归；复跑 `test_reliability_recovery.py test_api_and_windows_regression.py`，实际结果 `23 passed, 10 warnings`，警告仅为既有 `datetime.utcnow()` 和 SQLAlchemy `Query.get()` 弃用提示。生产前端构建成功，实际为 `3696 modules transformed`。
+
+【完整桌面录屏】新增 `.playwright/record_complete_desktop.py`，使用生产前端、真实 Flask/OCC、两个真实 `SatelliteClient` 和独立 SQLite 验收库，连续录制 37 个功能段；门户、登录、注册、卫星网络与图层、系统设置、载荷参数、卫星管理、任务设置、星簇、地面站、示范用例、告警、回放、任务闭环和性能分析均通过真实菜单与控件操作，不添加字幕、章节卡、说明贴片或高亮。
+【规划画面补强】`.playwright/record_full_flow.py` 的任务创建辅助函数新增兼容参数 `settle_ms`，默认仍为 2500；完整巡演在提交后立即捕获任务详情中的“等待规划／未分配”，随后捕获“等待执行／Sat_10_17”，再进入网络页持续展示真实执行进度。每轮证据写入独立运行目录，不覆盖此前录屏、数据库、日志或截图。
+【真实闭环结果】任务“全系统真实闭环_0_3140”的业务 UUID 为 `ac79df79-a81e-491e-ac04-3e4fd034c97a`，自动规划后由 `Sat_10_17` 执行；进度样本为 1%、23%、46%、69%、94%，历史状态为 Success，客户端真实执行耗时 21600 ms。结果发送 8 次，其中 7 次为真实 ACK 超时重发，随后 ACK 成功；`t_old_task` 与 `t_task_result` 对应 UUID 均各 1 条，客户端 `acked_results` 1 条、`outbox` 0 条，确认幂等归档与持久发件箱清理有效。
+【浏览器与视频验收】浏览器控制台错误 0、HTTP 4xx/5xx 0；页面切换时有 1 次 `/getCurrentTime` 轮询被导航取消（`net::ERR_ABORTED`），不是 HTTP 失败，未造成功能段缺失。最终文件 `/mnt/agents/output/桌面全系统功能真实运行演示_20261108_063900_3140.mp4` 为 439.400 秒、1440×900、25 fps、H.264/yuv420p、无音轨，大小 36009229 字节；完整 ffmpeg 解码无错误，持续黑屏与长时间冻结检测无命中，全片抽帧和关键证据截图已逐段复核。旧版视频与全部运行证据保留。
+
+正常测试步骤：
+```bash
+cd /mnt/agents/local-output/app/backend
+PYTHONPATH=../.runtime-deps:. python3 -m pytest -q test_reliability_recovery.py test_api_and_windows_regression.py
+# 预期 23 passed；point、area、ocean 无归档时均为 200/success/data:null。
+ffprobe -v error -show_entries format=duration,size:stream=codec_name,width,height,r_frame_rate -of json /mnt/agents/output/桌面全系统功能真实运行演示_20261108_063900_3140.mp4
+ffmpeg -v error -i /mnt/agents/output/桌面全系统功能真实运行演示_20261108_063900_3140.mp4 -f null -
+# 播放复核：等待规划→分配 Sat_10_17→正在执行→百分比增长→历史 Success→UUID 与客户端原始回传。
+```
+
+异常／边界测试步骤：
+```bash
+# 请求 /tasks/caseResult/unknown：预期 400；三类合法用例无归档时不得再产生 404 和 console.error。
+# 客户端 ACK 超时：预期同一 UUID 重发；最终只归档一次，ACK 后 outbox 不再保留该任务。
+# 回放快照较少时允许自动播到末帧，不强制点击已经恢复为“播放”的按钮。
+# 录屏必须同时满足 sawPlanning、sawWaiting、sawRunning、历史 Success 和进度超过 50%，否则不得作为完整闭环验收通过。
+```
+
+
+## 完整桌面视频全新入口重导出（2026-11-08）
+- 用户仍看到此前的视频入口；不覆盖任何旧文件，将已验收的 `桌面全系统功能真实运行演示_20261108_063900_3140.mp4` 去掉开头 4 秒等待并重新编码为 `/mnt/agents/output/卫星项目_全系统真实运行完整演示_37功能段_20261108.mp4`，全部 37 个功能段与真实任务闭环保留。
+- 新文件时长 435.400 秒，1440×900、25 fps、H.264、无音轨，大小 35785304 字节；SHA-256 为 `b7da2ff3cf5f27b2c42b949daee2e745c2d8ff454f65d68b21b37d3b39eec839`，与源文件不同。
+- 正常／异常测试：完整 ffmpeg 解码无错误；源视频和旧视频均保留，无说明字幕或解释贴片。

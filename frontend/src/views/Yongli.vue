@@ -393,7 +393,7 @@ export default {
       } catch (e) {
         console.error('获取案例参数失败:', e);
       }
-      // 查询最近一次执行归档结果（404 表示暂无归档，属正常情况）
+      // 查询最近一次执行归档结果（暂无归档时后端返回 data:null，不作为请求异常）
       try {
         const res = await this.$request.get(`/tasks/caseResult/${type}`);
         if (res.data?.status === 'success') {

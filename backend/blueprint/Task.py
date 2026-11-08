@@ -1156,5 +1156,5 @@ def case_result(case_type):
     latest_case = OldTaskModel.query.filter_by(task_type=type_map[case_type], is_photo=False).order_by(
         OldTaskModel.id.desc()).first()
     if latest_case is None:
-        return jsonify({'status': 'error', 'message': '暂无该用例的执行归档数据'}), 404
+        return jsonify({'status': 'success', 'data': None, 'message': '暂无该用例的执行归档数据'})
     return jsonify({'status': 'success', 'data': latest_case.to_dict()})

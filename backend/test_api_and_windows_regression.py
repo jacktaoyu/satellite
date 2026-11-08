@@ -188,6 +188,16 @@ def test_single_task_preserves_custom_name_and_supports_blank_fallback():
     assert len(task.task_name) == len('点目标') + 6
 
 
+def test_case_result_empty_archive_is_successful_empty_state(app):
+    client = app.test_client()
+    for case_type in ('point', 'area', 'ocean'):
+        response = client.get(f'/tasks/caseResult/{case_type}')
+        assert response.status_code == 200
+        assert response.get_json()['status'] == 'success'
+        assert response.get_json()['data'] is None
+    assert client.get('/tasks/caseResult/unknown').status_code == 400
+
+
 def test_production_cesium_assets_are_public_but_api_stays_protected(monkeypatch):
     monkeypatch.setenv('DATABASE_URL', 'sqlite://')
     monkeypatch.setenv('JWT_SECRET', uuid.uuid4().hex)
