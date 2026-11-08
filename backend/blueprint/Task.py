@@ -1,6 +1,6 @@
 import os
 from datetime import datetime, timedelta
-from sqlalchemy import and_
+from sqlalchemy import and_, or_, func
 
 
 from flask import Blueprint, request, jsonify, render_template, send_file
@@ -73,9 +73,12 @@ def add_tasks():
 # 添加单个任务
 @task_bp.route('/addSingleTask', methods=['POST'])
 def add_single_task():
-    form = request.json
+    form = request.get_json(silent=True) or {}
+    if not form:
+        return jsonify({"error": "请求体不能为空"}), 400
     task = occ.generate_single_task(form)
-    return jsonify({"result": "ok"})
+    return jsonify({"result": "ok", "taskId": task.task_id if task else None,
+                    "taskUuid": task.task_uuid if task else None})
 
 
 # 编辑未完成任务（只更新传入的字段，执行中的任务不允许编辑）
@@ -174,52 +177,52 @@ def get_new_tasks():
     return results
 
 
-# 动态条件查询未完成任务
-@task_bp.route('/getNewTasks', methods=['POST'])
-def get_new_tasks_by_condition():
-    # 获取参数
-    form = request.json
-    page = form.get('page', 1)
-    page_size = form.get('page_size', 10)
+def _filtered_task_query(model, form):
+    filters = []
     priority = form.get('priority')
     urgent = form.get('urgent')
     task_type = form.get('type')
     payload = form.get('payload')
     status = form.get('status')
-
-    # 构建查询条件
-    filters = []
-
-    # 永远过滤掉任务名带“案例”的任务
-    # filters.append(not_(NewTaskModel.task_name.like('%案例%')))
-
     if priority and priority != []:
-        filters.append(NewTaskModel.priority.in_(priority))
+        filters.append(model.priority.in_(priority))
     if urgent and urgent != []:
-        # urgent: ["是", "否"] → is_emergency: [True, False]
         bool_map = {"是": True, "否": False}
-        bool_urgent = [bool_map.get(u, False) for u in urgent]
-        filters.append(NewTaskModel.is_emergency.in_(bool_urgent))
+        filters.append(model.is_emergency.in_([bool_map.get(u, False) for u in urgent]))
     if task_type and task_type != []:
-        filters.append(NewTaskModel.task_type.in_(task_type))
+        filters.append(model.task_type.in_(task_type))
     if payload and payload != []:
-        filters.append(NewTaskModel.sensor_type.in_(payload))
+        filters.append(model.sensor_type.in_(payload))
     if status and status != []:
-        filters.append(NewTaskModel.status.in_(status))
-
-    query = NewTaskModel.query
-    if filters and len(filters) > 0:
-        if len(filters) == 1:
-            query = query.filter(filters[0])
+        filters.append(model.status.in_(status))
+    keyword = str(form.get('search') or form.get('task_name') or form.get('keyword') or '').strip()
+    if keyword:
+        if keyword.isdigit():
+            filters.append(model.id == int(keyword))
         else:
-            query = query.filter(and_(*filters))
+            like = f'%{keyword}%'
+            filters.append(or_(model.task_name.like(like), model.task_uuid.like(like)))
+    query = model.query
+    if filters:
+        query = query.filter(and_(*filters))
+    return query.order_by(model.id.desc())
 
+
+def _task_page(model, form, historical=False):
+    try:
+        page = max(1, int(form.get('page', 1)))
+        page_size = min(100, max(1, int(form.get('page_size', 10))))
+    except (TypeError, ValueError):
+        return {'status': 'error', 'message': '分页参数格式错误'}, 400
+    query = _filtered_task_query(model, form)
     pagination = query.paginate(page=page, per_page=page_size, error_out=False)
-    tasks = pagination.items
-
-    results = [
-        {
+    if pagination.pages and page > pagination.pages:
+        pagination = query.paginate(page=pagination.pages, per_page=page_size, error_out=False)
+    results = []
+    for task in pagination.items:
+        item = {
             'id': task.id,
+            'task_uuid': task.task_uuid,
             'task_name': task.task_name,
             'priority': task.priority,
             'is_urgent': task.is_emergency,
@@ -232,25 +235,63 @@ def get_new_tasks_by_condition():
             'appoint_time': str(task.appoint_time),
             'status': task.status,
             'satellite_name': task.assigned_satellite_name,
-            "cluster_name": task.cluster_name if task.cluster_name else "",
-            'friend_task': task.friend_task_id,
-            'cloud_thickness': task.cloud_thickness
-        } for task in tasks
-    ]
-
+            'cluster_name': getattr(task, 'cluster_name', '') or '',
+            'friend_task': task.friend_task_id or '',
+            'cloud_thickness': task.cloud_thickness if task.cloud_thickness is not None else ''
+        }
+        if historical:
+            item.update({
+                'path': task.path or '',
+                'result_payload': task.result_payload,
+                'result_received_at': str(task.result_received_at) if task.result_received_at else None
+            })
+        results.append(item)
     return {
         'status': 'success',
         'message': '数据获取成功',
         'data': {
-            'items': results,  # 任务列表
-            'total': pagination.total,  # 总任务数
-            'pages': pagination.pages,  # 总页数
-            'current_page': pagination.page,  # 当前页
-            'per_page': pagination.per_page,  # 每页任务数
-            'has_next': pagination.has_next,  # 是否有下一页
-            'has_prev': pagination.has_prev  # 是否有上一页
+            'items': results,
+            'total': pagination.total,
+            'pages': pagination.pages,
+            'current_page': pagination.page,
+            'per_page': pagination.per_page,
+            'has_next': pagination.has_next,
+            'has_prev': pagination.has_prev
         }
     }
+
+
+# 动态条件查询未完成任务
+@task_bp.route('/getNewTasks', methods=['POST'])
+def get_new_tasks_by_condition():
+    form = request.get_json(silent=True) or {}
+    return _task_page(NewTaskModel, form)
+
+
+@task_bp.route('/getTaskStats', methods=['GET'])
+def get_task_stats():
+    status_counts = {}
+    for model in (NewTaskModel, OldTaskModel):
+        rows = db.session.query(model.status, func.count(model.id)).group_by(model.status).all()
+        for status, count in rows:
+            status_counts[status] = status_counts.get(status, 0) + count
+    new_total = NewTaskModel.query.count()
+    old_total = OldTaskModel.query.count()
+    return jsonify({
+        'status': 'success',
+        'data': {
+            'total': new_total + old_total,
+            'newTotal': new_total,
+            'oldTotal': old_total,
+            'pending': new_total,
+            'completed': old_total,
+            'success': status_counts.get('Success', 0),
+            'failed': status_counts.get('Failed', 0),
+            'running': status_counts.get('正在执行', 0),
+            'waiting': status_counts.get('等待执行', 0) + status_counts.get('等待规划', 0),
+            'statusCounts': status_counts
+        }
+    })
 
 
 # 根据id查询未完成的任务的状态
@@ -294,80 +335,8 @@ def get_old_tasks():
 # 动态条件查询已经完成的任务
 @task_bp.route('/getOldTasks', methods=['POST'])
 def get_old_tasks_by_condition():
-    # 获取参数
-    form = request.json
-    page = form.get('page', 1)
-    page_size = form.get('page_size', 10)
-    priority = form.get('priority')
-    urgent = form.get('urgent')
-    task_type = form.get('type')
-    payload = form.get('payload')
-    status = form.get('status')
-
-    # 构建查询条件
-    filters = []
-
-    # 永远过滤掉任务名带“案例”的任务
-    # filters.append(not_(OldTaskModel.task_name.like('%案例%')))
-
-    if priority and priority != []:
-        filters.append(OldTaskModel.priority.in_(priority))
-    if urgent and urgent != []:
-        # urgent: ["是", "否"] → is_emergency: [True, False]
-        bool_map = {"是": True, "否": False}
-        bool_urgent = [bool_map.get(u, False) for u in urgent]
-        filters.append(OldTaskModel.is_emergency.in_(bool_urgent))
-    if task_type and task_type != []:
-        filters.append(OldTaskModel.task_type.in_(task_type))
-    if payload and payload != []:
-        filters.append(OldTaskModel.sensor_type.in_(payload))
-    if status and status != []:
-        filters.append(OldTaskModel.status.in_(status))
-
-    query = OldTaskModel.query
-    if filters and len(filters) > 0:
-        if len(filters) == 1:
-            query = query.filter(filters[0])
-        else:
-            query = query.filter(and_(*filters))
-
-    pagination = query.paginate(page=page, per_page=page_size, error_out=False)
-    tasks = pagination.items
-
-    results = [
-        {
-            'id': task.id,
-            'task_name': task.task_name,
-            'priority': task.priority,
-            'is_urgent': task.is_emergency,
-            'payload': task.sensor_type,
-            'type': task.task_type,
-            'resolution': task.resolution,
-            'coordinates': task.target_location,
-            'start_time': str(task.start_time),
-            'end_time': str(task.end_time),
-            'appoint_time': str(task.appoint_time),
-            'status': task.status,
-            'satellite_name': task.assigned_satellite_name,
-            'friend_task': task.friend_task_id if task.friend_task_id else "",
-            'cloud_thickness': task.cloud_thickness if task.cloud_thickness else "",
-            'path': task.path if task.path else ""
-        } for task in tasks
-    ]
-
-    return {
-        'status': 'success',
-        'message': '数据获取成功',
-        'data': {
-            'items': results,  # 任务列表
-            'total': pagination.total,  # 总任务数
-            'pages': pagination.pages,  # 总页数
-            'current_page': pagination.page,  # 当前页
-            'per_page': pagination.per_page,  # 每页任务数
-            'has_next': pagination.has_next,  # 是否有下一页
-            'has_prev': pagination.has_prev  # 是否有上一页
-        }
-    }
+    form = request.get_json(silent=True) or {}
+    return _task_page(OldTaskModel, form, historical=True)
 
 
 # # 分页查询所有已经完成的任务

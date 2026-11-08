@@ -21,6 +21,7 @@ from Service.SatelliteService import Satellite
 from model.ClusterModel import ClusterModel, ClusterStarRelation
 
 from model.TaskModel import NewTaskModel, OldTaskModel
+from Service.TaskResultService import TaskResultService, TaskResultError
 from config import NODES, GROUND_STATION, INTER_VAL_TIME
 
 
@@ -290,14 +291,14 @@ class SatelliteNetwork:
         # self.server_socket.bind(('0.0.0.0', 9999))
         # self.server_socket.listen(NODES)
 
-        # socket 握手鉴权 token：环境变量 SOCKET_AUTH_TOKEN 可覆盖，未设置时使用开发默认值
+        # socket 服务必须显式配置鉴权密钥，禁止回退到源码中的固定密钥。
         self.auth_token = os.environ.get('SOCKET_AUTH_TOKEN')
         if not self.auth_token:
-            self.auth_token = 'dev-satellite-token'
-            print("警告: 未设置环境变量 SOCKET_AUTH_TOKEN，socket 服务使用开发默认 token，生产环境请务必配置")
+            self.server_socket.close()
+            raise RuntimeError('未设置环境变量 SOCKET_AUTH_TOKEN，拒绝启动未鉴权 socket 服务')
 
-        # 客户端连接列表
-        self.client_sockets = []
+        # 固定槽位保证卫星的 client 索引在断线重连后不发生偏移。
+        self.client_sockets = [None] * NODES
         # 客户端发送线程列表
         self.client_send_threads = []
         # 客户端接收线程列表
@@ -315,7 +316,7 @@ class SatelliteNetwork:
 
     def _try_accept_client(self):
         """尝试接收一个客户端连接（非阻塞）；无待处理连接时直接返回"""
-        if len(self.client_sockets) >= NODES:
+        if all(client is not None for client in self.client_sockets):
             return
         try:
             client_socket, client_address = self.server_socket.accept()
@@ -323,74 +324,88 @@ class SatelliteNetwork:
             return
         except OSError:
             return
-        if not self._verify_client_token(client_socket, client_address):
+        handshake_remainder = self._verify_client_token(client_socket, client_address)
+        if handshake_remainder is False:
             client_socket.close()
             return
         print(f"客户端 {client_address[0]}:{client_address[1]} 已连接")
-        self.client_sockets.append(client_socket)
-        # 为每个客户端创建接收线程
-        recv_thread = threading.Thread(target=self._receive_results, args=(client_socket,))
+        client_index = self.client_sockets.index(None)
+        self.client_sockets[client_index] = client_socket
+        # 为每个客户端创建接收线程，保留与鉴权消息同包到达的结果字节。
+        recv_thread = threading.Thread(
+            target=self._receive_results,
+            args=(client_socket, handshake_remainder),
+            daemon=True
+        )
         self.client_recv_threads.append(recv_thread)
         recv_thread.start()
-        if len(self.client_sockets) >= NODES:
+        self.is_connect = any(client is not None for client in self.client_sockets)
+        if all(client is not None for client in self.client_sockets):
             print("所有客户端已连接")
-            self.is_connect = True
 
     def _verify_client_token(self, client_socket, client_address):
-        """校验客户端第一条握手消息中的 token，失败返回 False"""
+        """按换行校验首条握手消息，并返回同包到达的后续字节；失败返回 False。"""
         try:
             client_socket.settimeout(10)  # 握手超时保护，避免永久阻塞 accept 循环
-            data = client_socket.recv(1024)
+            buffer = b""
+            while b'\n' not in buffer:
+                data = client_socket.recv(1024)
+                if not data:
+                    raise ConnectionError('客户端在鉴权握手前断开')
+                buffer += data
+                if len(buffer) > 65536:
+                    raise ValueError('鉴权握手消息过长')
+            handshake, buffer = buffer.split(b'\n', 1)
             client_socket.settimeout(None)
-            msg = json.loads(data.decode().strip())
+            msg = json.loads(handshake.decode().strip())
             if msg.get('token') == self.auth_token:
-                return True
+                return buffer
             print(f"客户端 {client_address[0]}:{client_address[1]} 鉴权失败，关闭连接")
         except Exception as e:
             print(f"客户端 {client_address[0]}:{client_address[1]} 鉴权握手异常: {e}，关闭连接")
         return False
 
     def _send_tasks(self, satellite, task, execute_time=None):
-        """发送任务到客户端"""
-        if satellite.client >= len(self.client_sockets):
-            print(
-                f"Error: Invalid client index {satellite.client}, client_sockets length is {len(self.client_sockets)}")
-            return
+        """发送任务到客户端；只有完整发送成功才返回 True。"""
+        if satellite.client >= len(self.client_sockets) or self.client_sockets[satellite.client] is None:
+            print(f"客户端槽位 {satellite.client} 未连接，任务保持等待执行")
+            return False
 
         msg = {
             "task_id": task.task_id,
+            "task_uuid": task.task_uuid,
             "execute_time": execute_time if execute_time is not None else task.execution_time
         }
-        # 确保发送完整JSON数据，添加换行符作为消息分隔符
         data = json.dumps(msg) + "\n"
         try:
             print("发送任务给客户端：", task.task_id, "卫星的客户端是:", satellite.client,
                   self.client_sockets[satellite.client])
             self.client_sockets[satellite.client].sendall(data.encode())
+            return True
         except Exception as e:
             print(f"发送失败: {e}")
+            return False
 
-    def _receive_results(self, client_socket):
-        """接收客户端返回的结果"""
-        buffer = b""
+    def _receive_results(self, client_socket, initial_buffer=b""):
+        """接收客户端返回的结果，先处理鉴权阶段同包到达的剩余字节。"""
+        buffer = initial_buffer
         while True:
             try:
-                data = client_socket.recv(1024)
-                if not data:
-                    break
-
-                buffer += data
-                # 按换行符分割消息
+                # 先处理已有完整消息，避免握手剩余结果等待下一次 recv 才被消费。
                 while b'\n' in buffer:
                     msg_str, buffer = buffer.split(b'\n', 1)
                     try:
                         # 解析JSON消息
                         msg = json.loads(msg_str.decode())
                         # 将结果放到结果缓冲区
-                        self.results_buffer.put(msg)
+                        self.results_buffer.put((client_socket, msg))
                     except json.JSONDecodeError as e:
                         print(f"JSON解析错误: {e}")
                         continue
+                data = client_socket.recv(1024)
+                if not data:
+                    break
+                buffer += data
             except Exception as e:
                 print(f"接收结果出错: {str(e)}")
                 break
@@ -406,8 +421,9 @@ class SatelliteNetwork:
         if client_socket not in self.client_sockets:
             return
         client_index = self.client_sockets.index(client_socket)
-        self.client_sockets.remove(client_socket)
-        print(f"客户端连接已断开并清理，剩余客户端数: {len(self.client_sockets)}")
+        self.client_sockets[client_index] = None
+        self.is_connect = any(client is not None for client in self.client_sockets)
+        print(f"客户端槽位 {client_index} 已断开，等待重连")
         # 重置该客户端上处于“正在执行”状态且未收到结果的任务，避免任务永久卡死
         for task in self.running_tasks[:]:
             satellite = self.satellites.get(task.assigned_satellite)
@@ -421,7 +437,8 @@ class SatelliteNetwork:
             # 重新加入待执行队列（与 check_execute_tasks 共用同一把锁）
             lock = self.operation_center.task_lock if self.operation_center else nullcontext()
             with lock:
-                self.new_tasks.append(task)
+                if task not in self.new_tasks:
+                    self.new_tasks.append(task)
             self.update_task(task)
             print(f"任务 {task.task_id} 因客户端断连重置为等待执行")
 
@@ -790,88 +807,72 @@ class SatelliteNetwork:
         # 表明所有的卫星已经计算了一遍轨迹
         self.is_trace = True
 
+    def _send_result_reply(self, client_socket, reply_type, task_uuid, message=None):
+        """数据库处理完成后回送 ACK/NACK；发送失败由客户端持久发件箱重试。"""
+        msg = {'type': reply_type, 'task_uuid': task_uuid}
+        if message:
+            msg['message'] = message
+        try:
+            client_socket.sendall((json.dumps(msg, ensure_ascii=False) + '\n').encode())
+        except Exception as e:
+            print(f"发送结果确认失败: {e}")
+
     def collect_results(self):
-        """
-        收集结果
-        :return:
-        """
-        tasks_to_migrate = []  # 收集需要迁移到旧表的任务
-        tasks_to_remove = []   # 收集需要从 running_tasks 移除的任务
-
+        """按稳定 UUID 幂等收件；提交成功后 ACK，业务错误 NACK，未知异常不 ACK。"""
         while not self.results_buffer.empty():
-            result = self.results_buffer.get()
-            print(result)
-            # 根据 task_id 查找 running_tasks 中的任务（遍历副本避免修改中遍历）
-            for task in self.running_tasks[:]:
-                if task.task_id == result["task_id"]:
-                    tasks_to_remove.append(task)
-                    if task.task_id == self.satellites[task.assigned_satellite].running_task:
-                        self.satellites[task.assigned_satellite].running_task = None
-                        self.satellites[task.assigned_satellite].status = "FREE"
-
-                    x, y, z = self.satellites[task.assigned_satellite].position
-                    # 计算高度
-                    height = math.sqrt(x ** 2 + y ** 2 + z ** 2) - 6371
-                    # 如果是子任务，需要判断其父任务是否还有其他子任务未完成
-                    locations = None
+            client_socket, result = self.results_buffer.get()
+            task_uuid = result.get('task_uuid')
+            task = next((item for item in self.running_tasks
+                         if str(getattr(item, 'task_uuid', '')) == str(task_uuid)), None)
+            archive = True
+            archive_task = task
+            height = None
+            locations = None
+            try:
+                if task is not None:
+                    satellite = self.satellites.get(task.assigned_satellite)
+                    if satellite is not None and satellite.position is not None:
+                        x, y, z = satellite.position
+                        height = math.sqrt(x ** 2 + y ** 2 + z ** 2) - 6371
                     if task.parent_task_id:
-                        main_task = self.net_tasks_buffer[task.parent_task_id]
-                        if task.task_id in main_task.subtask_ids:
-                            main_task.subtask_ids.remove(task.task_id)
-                        # 如果主任务没有其他子任务，则将其移除
-                        if len(main_task.subtask_ids) == 0:
-                            task = self.net_tasks_buffer.pop(main_task.task_id)
-                            locations = [subtask.target_location for subtask in main_task.subtasks]
+                        main_task = self.net_tasks_buffer.get(task.parent_task_id)
+                        if main_task:
+                            if task.task_id in main_task.subtask_ids:
+                                main_task.subtask_ids.remove(task.task_id)
+                            if main_task.subtask_ids:
+                                archive = False
+                            else:
+                                self.net_tasks_buffer.pop(main_task.task_id, None)
+                                archive_task = main_task
+                                locations = [subtask.target_location for subtask in main_task.subtasks]
                         else:
-                            break
-                    task.status = "Success"
-                    tasks_to_migrate.append({
-                        'task': task,
-                        'height': height,
-                        'locations': locations
-                    })
-                    break
-
-        # 批量从 running_tasks 移除
-        for task in tasks_to_remove:
-            if task in self.running_tasks:
-                self.running_tasks.remove(task)
-
-        # 批量数据库操作：一次 app_context，一次 commit
-        if tasks_to_migrate:
-            with self.app.app_context():
-                for item in tasks_to_migrate:
-                    task = item['task']
-                    height = item['height']
-                    locations = item['locations']
-                    newtask_model = NewTaskModel.query.filter_by(id=task.task_id).first()
-                    if newtask_model:
-                        oldtask_model = OldTaskModel(
-                            id=newtask_model.id,
-                            task_name=newtask_model.task_name,
-                            priority=newtask_model.priority,
-                            is_emergency=newtask_model.is_emergency,
-                            sensor_type=newtask_model.sensor_type,
-                            task_type=newtask_model.task_type,
-                            resolution=newtask_model.resolution,
-                            start_time=newtask_model.start_time,
-                            end_time=newtask_model.end_time,
-                            appoint_time=newtask_model.appoint_time,
-                            cloud_thickness=newtask_model.cloud_thickness,
-                            target_location=newtask_model.target_location,
-                            assigned_satellite_name=newtask_model.assigned_satellite_name,
-                            status=task.status,
-                            friend_task_id=newtask_model.friend_task_id,
-                            is_photo=False,
-                            path=None,
-                            height=height,
-                            sub_length=len(locations) if task.subtasks else None,
-                            sub_locations=str(locations) if task.subtasks else None,
-                            comment=newtask_model.comment
-                        )
-                        db.session.delete(newtask_model)
-                        db.session.add(oldtask_model)
-                db.session.commit()
+                            archive = False
+                    task.status = 'Success' if result.get('result') == '成功' else 'Failed'
+                with self.app.app_context():
+                    outcome = TaskResultService.process_result(
+                        task, result, height=height, locations=locations,
+                        archive=archive, archive_task=archive_task
+                    )
+                if task is not None:
+                    if task in self.running_tasks:
+                        self.running_tasks.remove(task)
+                    if task in self.new_tasks:
+                        self.new_tasks.remove(task)
+                    satellite = self.satellites.get(task.assigned_satellite)
+                    if satellite and satellite.running_task == task.task_id:
+                        satellite.running_task = None
+                        satellite.status = 'FREE'
+                self._send_result_reply(client_socket, 'ack', task_uuid)
+                print(f"任务结果已持久化: {task_uuid}, duplicate={outcome['duplicate']}")
+            except TaskResultError as e:
+                db.session.rollback()
+                self._send_result_reply(client_socket, 'nack', task_uuid, str(e))
+                print(f"任务结果被拒绝: {task_uuid}, {e}")
+            except Exception as e:
+                db.session.rollback()
+                import traceback
+                print(f"任务结果处理异常，不发送 ACK: {e}")
+                print(traceback.format_exc())
 
     def check_execute_tasks(self, now_time, time_multiple):
         """
@@ -881,7 +882,7 @@ class SatelliteNetwork:
         # 共用同一把锁（OCC 的 task_lock），保护共享的 new_tasks 列表
         lock = self.operation_center.task_lock if self.operation_center else nullcontext()
         with lock:
-            if not (self.new_tasks and len(self.client_sockets) > 0):
+            if not (self.new_tasks and any(client is not None for client in self.client_sockets)):
                 return
             # 锁内拍快照，遍历快照执行（循环体内有 socket 发送等耗时操作，避免长时间持锁）
             tasks_snapshot = list(self.new_tasks)
@@ -893,13 +894,11 @@ class SatelliteNetwork:
                 continue
             satellite = self.satellites[task.assigned_satellite]
             if satellite.is_available:
-                # 执行任务
+                # 墙钟执行时间不随仿真倍速缩短；发送失败时任务继续等待。
+                if not self._send_tasks(satellite, task, task.execution_time):
+                    continue
                 self.running_tasks.append(task)
                 executed_tasks.append(task)
-                # 执行时间除以加速倍数（局部变量计算，不修改 task 对象本身，避免断连重发后重复除）
-                execute_time = task.execution_time / time_multiple
-                # 发送到卫星实物节点执行
-                self._send_tasks(satellite, task, execute_time)
                 satellite.status = "RUNNING"
                 satellite.battery = task.battery_after_task
                 # 更新卫星状态
@@ -934,6 +933,7 @@ class SatelliteNetwork:
             if newtask_model:
                 oldtask_model = OldTaskModel(
                     id=newtask_model.id,
+                    task_uuid=newtask_model.task_uuid,
                     task_name=newtask_model.task_name,
                     priority=newtask_model.priority,
                     is_emergency=newtask_model.is_emergency,

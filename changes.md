@@ -3206,3 +3206,109 @@ ctx.fillRect(-108, -22, 72, 44); ctx.fillRect(36, -22, 72, 44) // 太阳翼
 ## 2026-09-10 修复仿真时间显示与设置值差 8 小时的问题
 - 系统设置页提交的本地时间在入口被转成 UTC 存储，但卫星网络页/性能分析页显示时直接把 UTC 字符串原样输出，用户设 6 月 6 日却看到 6 月 5 日 16 点；新增 utils/time.js 的 utcToLocalString，两处显示统一 UTC→本地时区转换，设置与显示一致，内部规划时间轴（UTC）不受影响。
 - 测试：npm run build 通过；Playwright 模拟东八区/UTC 浏览器分别提交 6月6日06:00，两页显示均与设置值一致，无页面异常。
+
+
+## 任务结果可靠闭环（重新应用）
+
+【修改】`backend/model/TaskModel.py`、`backend/Service/TaskResultService.py`、`backend/utils/task_schema.py`：新增稳定业务 UUID、结果收件表、原始回传与接收时间，归档和收件在同一数据库事务中完成；既有数据库只补列、补索引和回填 UUID，不清空数据。
+【修改】`backend/client_store.py`、`backend/client.py`：新增 SQLite 持久发件箱、ACK/NACK 历史、断线重连、ACK 超时重发、跨重启去重及 `monotonic` 真实执行计时；连接 Token 只从环境变量读取，停止中的任务不回传伪成功结果。
+【修改】`backend/Service/TaskService.py`、`backend/Service/split.py`、`backend/Service/ControlleService.py`、`backend/Service/SatelliteNetworkService.py`：任务及子任务携带稳定 UUID；发送成功才进入运行队列，提交后 ACK、业务错误 NACK；客户端使用固定槽位，重启后恢复未归档任务，执行计时不再除以仿真倍速。
+
+正常测试步骤：
+```bash
+cd backend
+python3 -m py_compile model/TaskModel.py Service/TaskResultService.py client_store.py client.py utils/task_schema.py Service/TaskService.py Service/split.py Service/SatelliteNetworkService.py Service/ControlleService.py
+# 启动独立验收库、OCC 与两个客户端，创建点目标任务；预期依次出现等待执行、正在执行、历史 Success，
+# 客户端收到 ACK，t_task_result 与 t_old_task 各保留一条对应记录。
+```
+异常/边界测试步骤：
+```bash
+# 不设置 SOCKET_AUTH_TOKEN 启动客户端或服务端：预期拒绝连接/启动，且无固定 Token 回退。
+# 对同一 task_uuid 重复回传、回传错误数字 ID、未知 UUID：预期分别幂等 ACK、NACK、NACK。
+# ACK 前断开客户端并重启：预期 outbox 保留并重发；服务端只归档一次。
+# 检查源码：grep -R "dev-satellite-token" backend --include='*.py' 应无输出。
+```
+
+
+## 窗口兼容、任务查询与同源运行（重新应用）
+
+【修改】`backend/utils/downlink_windows.py`、`backend/Service/Ant.py`、`Genetic.py`、`Greedy.py`、`SatelliteService.py`：统一归一化二元素 list/tuple、单窗口 dict 和窗口 ID 映射，忽略缺少起止时间的异常窗口。
+【修改】`backend/blueprint/Task.py`、`backend/blueprint/Satellite.py`：新增分页前名称/UUID/数字 ID 搜索、页码越界回退、全库状态统计、历史结果字段及真实电池容量。
+【修改】`backend/config.py`、`backend/app.py`：支持 `DATABASE_URL`、前端生产资源同源托管、SPA 回退、`/health` 和 `PORT`；数据库升级完成后再启动 OCC，静态页面与 API 鉴权隔离。
+【测试】新增 `backend/test_reliability_recovery.py`、`backend/test_api_and_windows_regression.py`，实际执行 18 项测试全部通过。
+
+正常测试步骤：
+```bash
+cd backend
+PYTHONPATH=../.runtime-deps:. python3 -m pytest -q test_reliability_recovery.py test_api_and_windows_regression.py
+# 预期：18 passed；创建任务后可按名称、UUID、数字 ID 搜索，统计包含新旧任务。
+```
+异常/边界测试步骤：
+```bash
+# 重复回传只产生一条收件和一条历史；错误数字 ID、未知 UUID 均被拒绝且不归档。
+# 客户端在 ACK 前重启，未确认结果仍在 outbox；停止长任务后 outbox 不新增伪成功结果。
+# 窗口传空值、缺字段 dict、二元素 list 或以 ID 为键的 dict，规划过程均不因类型错误崩溃。
+```
+
+
+## 前端任务闭环、移动交互与生产拆包（重新应用）
+
+【修改】`frontend/src/views/Renwu/Shuxing.vue`：任务名称、数字 ID、业务 UUID 统一提交服务端查询，统计改用新旧任务全库接口；历史列表与详情展示接收时间和客户端原始回传，轮询保持当前 Tab。
+【修改】`frontend/src/views/Satellite_network.vue`：Cesium 改为进入页面时动态加载，电量按 `battery / maxBattery` 显示百分比；任务执行进度使用浏览器墙钟估算，不随仿真倍速加速；补充演示模式和窄屏布局。
+【修改】`frontend/src/views/main/main.vue`：移动端侧栏支持遮罩、Esc、路由切换关闭和背景滚动锁定；顶栏健康状态改为真实 `/health` 轮询。
+【修改】`frontend/src/styles/reduced-motion.css`、`main.js`、`utils/config.js`、`vite.config.js`：接入系统减少动画设置，生产 API 默认同源，Cesium 使用独立生产 chunk 并复制完整运行资源。
+
+正常测试步骤：
+```bash
+cd frontend
+npm install
+npm run build
+# 预期构建成功；dist/assets 中出现独立 vendor-cesium chunk，
+# dist/cesium/Assets、Workers、Widgets 资源存在，入口 HTML 不直接加载 Cesium chunk。
+# 页面创建任务后，依次检查待执行、正在执行、历史 Success 与客户端回传详情。
+```
+异常/边界测试步骤：
+```bash
+# 搜索第二页中的任务名称、数字 ID 或 UUID：预期第一页即可命中，不再只过滤当前页。
+# 手机宽度打开抽屉，分别点击遮罩、按 Esc、切换路由：预期抽屉关闭且背景恢复滚动。
+# 停止后端或将 /health 返回 degraded：预期顶栏显示 OFFLINE/DEGRADED，而非固定 LINK NORMAL。
+# 系统开启“减少动态效果”：预期装饰动画与滚动动画停用，任务状态和内容仍完整可见。
+```
+
+
+## 真实闭环修复、浏览器验收与双端录屏（2026-11-08）
+
+【修改】`backend/Service/SatelliteNetworkService.py`：卫星位置为 NumPy 数组时显式判断 `is not None`，避免数组布尔求值导致结果归档异常；鉴权握手按换行解析并保留同包剩余字节，接收线程在再次 `recv()` 前即时消费完整结果消息，修复握手与结果粘包时重复回传无 ACK 的问题。
+【修改】`backend/Service/ControlleService.py`：新增单任务时保留用户输入并去除首尾空白的 `task_name`，仅在名称为空时沿用“任务类型＋随机后缀”的兼容回退，修复入库后按用户任务名搜索为空的问题。
+【修改】`backend/app.py`：仅将 `/cesium/` 静态运行资源加入公开静态白名单，修复 Widgets CSS 与 Workers 被 401 拦截、三维渲染停止的问题；业务 API 仍要求有效 Token。
+【修改】`frontend/src/views/Renwu/Shuxing.vue`：新增任务和任务详情弹窗在手机宽度下限制高度并允许滚动，长 UUID 与回传内容可换行查看。
+【测试】`backend/test_reliability_recovery.py`、`backend/test_api_and_windows_regression.py` 新增 NumPy 位置、TCP 粘包、任务名称与静态资源鉴权边界回归；测试凭据改为运行时生成。最终执行 22 项全部通过，保留既有弃用警告，无失败。
+
+正常测试步骤：
+```bash
+cd /mnt/agents/local-output/app
+PYTHONPATH=.runtime-deps:backend python3 -m pytest backend/test_reliability_recovery.py backend/test_api_and_windows_regression.py -q
+# 实际结果：22 passed。
+cd frontend && npm run build
+# 实际结果：3696 modules transformed，构建成功；Cesium 仍为独立 chunk，入口不直接加载。
+PYTHONPATH=.runtime-deps:backend python3 -u backend/test_real_occ_client.py
+# 已在独立 OCC 库和两个真实客户端上通过：任务经 Sat_10_17 执行，历史 Success，
+# executionDurationMs=21600，真实 ACK、重复 ACK、未知 UUID NACK、收件与历史各一条。
+```
+
+异常/边界测试步骤：
+```bash
+# NumPy 位置数组：预期正常计算高度并归档，不触发“数组真值不明确”异常。
+# 鉴权与结果在同一 TCP 包到达：预期握手剩余结果被立即消费，不等待下一包。
+# 自定义任务名应原样入库并可搜索；纯空白任务名应生成兼容默认名。
+# 无 Token 请求 /cesium/ 静态文件可加载；无 Token 请求 /tasks/getTaskStats 仍返回 401。
+# 手机历史表格隐藏完整文本节点时，录屏按可见任务行和详情按钮验收，不绕过真实归档检查。
+```
+
+【真实浏览器录屏】使用生产前端、真实 Flask/OCC、两个真实 SatelliteClient 和每次独立 SQLite 运行库，未使用演示任务或伪造结果，未添加字幕、章节卡、说明贴片或高亮。
+- `/mnt/agents/output/桌面完整任务闭环.mp4`：1440×900，约 147.64 秒；任务“桌面闭环__25047”由 `Sat_10_17` 执行，历史状态 `Success`，客户端真实执行耗时 21600 ms，详情保留业务 UUID 与原始回传。
+- `/mnt/agents/output/手机完整任务闭环.mp4`：390×844，约 129.32 秒；任务“手机闭环__26250”同样完成等待、执行、ACK、历史 Success 和客户端回传详情。
+- 两段均为 H.264、25 fps、无音轨 MP4；录屏数据库、客户端发件箱、日志和关键帧证据均保留。登录前 `/initializationStatus`、`/getCurrentTime` 的 401 属未登录轮询，登录后的 Cesium Worker 与同源 API 无失败请求。
+
+【部署核验】`Dockerfile`、`.dockerignore`、生产 `frontend/dist/index.html` 与 Cesium 静态入口存在；当前环境没有 `docker` 命令，未实际构建 Docker 镜像，不以文件检查代替镜像构建结果。
+【版本入口】按动态版本保存要求补充根目录 `index.html` 占位入口，仅跳转 `/login`；Flask 生产同源入口与 Dockerfile 不变，不将动态应用改为静态站点。

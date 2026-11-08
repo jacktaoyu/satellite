@@ -3,9 +3,9 @@ import secrets
 import threading
 from datetime import datetime, timedelta, timezone
 from threading import Thread
-from flask import Flask, g, request, jsonify, send_file
+from flask import Flask, g, request, jsonify, send_file, send_from_directory
 from waitress import serve
-from sqlalchemy import inspect
+from sqlalchemy import inspect, text
 from werkzeug.security import generate_password_hash, check_password_hash
 
 from Service.ControlleService import OperationsControlCenter
@@ -20,9 +20,13 @@ from database import db
 from model.AuthTokenModel import AuthTokenModel
 from model.UserModel import UserModel
 from utils.auth import require_admin
+from utils.task_schema import upgrade_task_schema
 from flask_cors import CORS
 
 app = Flask(__name__)
+FRONTEND_DIST = os.path.abspath(os.environ.get(
+    'FRONTEND_DIST', os.path.join(os.path.dirname(__file__), '..', 'frontend', 'dist')
+))
 # CORS 允许来源从环境变量 CORS_ORIGINS 读取（逗号分隔），默认放行新旧前端开发地址（3000=React 版，5173=Vue 版）
 cors_origins = os.environ.get("CORS_ORIGINS", "http://localhost:3000,http://127.0.0.1:3000,http://localhost:5173,http://127.0.0.1:5173")
 CORS(app, origins=[origin.strip() for origin in cors_origins.split(",") if origin.strip()])
@@ -70,15 +74,14 @@ def initialize_system():
             _occ_instance.app = app  # 保存app实例
             extions.occ.set_instance(_occ_instance)
 
-            # 创建运控中心线程
+            # 数据库升级完成后再启动运控线程，避免读写尚未补齐的表结构。
             _occ_thread = Thread(target=_occ_instance.run)
             _occ_thread.daemon = True
-            _occ_thread.start()
 
         # 数据库表操作：仅创建不存在的表，保留已有数据。
         # 用 SQLAlchemy inspect 判断表是否存在（原先使用 MySQL 方言 SHOW TABLES，
         # 在 SQLite 等其它数据库上会直接报语法错误）
-        tables_to_create = ['t_new_task', 't_old_task', 't_cluster_star_relation', 't_cluster', 't_user', 't_case_history', 't_auth_token']
+        tables_to_create = ['t_new_task', 't_old_task', 't_task_result', 't_cluster_star_relation', 't_cluster', 't_user', 't_case_history', 't_auth_token']
         inspector = inspect(db.engine)
         existing_tables = set(inspector.get_table_names())
         for table_name in tables_to_create:
@@ -93,6 +96,9 @@ def initialize_system():
                     print(f"警告：表 {table_name} 已存在，无需创建")
                 else:
                     print(f"创建表 {table_name} 时出错: {str(e)}")
+
+        upgrade_task_schema()
+        _occ_thread.start()
 
         with _state_lock:
             _initialized = True
@@ -173,7 +179,10 @@ def global_auth_check():
     if request.method == 'OPTIONS':
         return None  # CORS 预检请求直接放行
     path = request.path
-    if path in AUTH_WHITELIST or path.startswith('/static/') or path == '/favicon.ico':
+    frontend_path = path in ('/', '/portal', '/login', '/register') or path.startswith('/satellite/')
+    static_path = path.startswith(('/static/', '/assets/', '/css/', '/js/', '/img/', '/cesium/'))
+    if (path in AUTH_WHITELIST or path in ('/health', '/favicon.ico') or static_path
+            or (request.method == 'GET' and frontend_path)):
         return None
     username = check_token(request.headers.get('Ac-Token'))
     if username is None:
@@ -197,8 +206,41 @@ app.register_blueprint(statistics_bp)  # 统计蓝图
 
 
 @app.route('/')
-def hello_world():  # put application's code here
+def hello_world():
+    index_path = os.path.join(FRONTEND_DIST, 'index.html')
+    if os.path.isfile(index_path):
+        return send_from_directory(FRONTEND_DIST, 'index.html')
     return 'Hello World!'
+
+
+@app.route('/health')
+def health():
+    database_ok = True
+    try:
+        db.session.execute(text('SELECT 1'))
+    except Exception:
+        database_ok = False
+    occ = _occ_instance
+    network_ready = bool(occ and occ.satellite_network and occ.satellite_network.is_trace)
+    return jsonify({
+        'status': 'ok' if database_ok else 'degraded',
+        'database': database_ok,
+        'occ': bool(occ and not occ.init_failed),
+        'networkReady': network_ready,
+        'clients': sum(client is not None for client in occ.satellite_network.client_sockets)
+        if network_ready else 0
+    }), 200 if database_ok else 503
+
+
+@app.route('/<path:path>')
+def frontend_fallback(path):
+    file_path = os.path.abspath(os.path.join(FRONTEND_DIST, path))
+    if file_path.startswith(FRONTEND_DIST + os.sep) and os.path.isfile(file_path):
+        return send_from_directory(FRONTEND_DIST, path)
+    index_path = os.path.join(FRONTEND_DIST, 'index.html')
+    if os.path.isfile(index_path) and not path.startswith(('tasks/', 'satellites/', 'clusters/', 'statistics/')):
+        return send_from_directory(FRONTEND_DIST, 'index.html')
+    return jsonify({'error': 'Not Found'}), 404
 
 
 # 从前端接收TLE文件
@@ -849,9 +891,8 @@ if __name__ == '__main__':
         # 初始化系统（从模块级移入此处，避免 app 被作为模块导入时产生副作用）
         initialize_system()
         print("正在启动服务器...")
-        print("服务器启动在 http://localhost:5001")
-        # server = pywsgi.WSGIServer(('0.0.0.0', 12345), app)
-        # server.serve_forever()
-        serve(app, host="0.0.0.0", port=5001, threads=4)  # 移除debug=True，添加threads参数
+        port = int(os.environ.get('PORT', '5001'))
+        print(f"服务器启动在 http://localhost:{port}")
+        serve(app, host="0.0.0.0", port=port, threads=4)
     except Exception as e:
         print(f"启动服务器时发生错误: {str(e)}")

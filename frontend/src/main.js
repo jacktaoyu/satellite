@@ -13,6 +13,7 @@ import "normalize.css/normalize.css"; //重置默认css样式
 import ElementPlus from "element-plus";
 import "element-plus/dist/index.css";
 import "./styles/dark-tech.css"; // 管理页深色 HUD 科技风全局覆盖样式
+import "./styles/reduced-motion.css"; // 尊重系统减少动态效果设置
 import zhCn from "element-plus/es/locale/lang/zh-cn";
 // 图标按需注册：原先全量注册近 300 个图标组件全部打进 vendor 包；
 // 这里只注册模板中以 <IconName /> 或字符串 prefix-icon 形式用到的少量图标，

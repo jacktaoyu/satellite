@@ -36,3 +36,14 @@ backend/output_plans/
 # 大文件（运行时生成/打包产物）
 frontend.zip
 backend/static/trace/
+
+# 隔离依赖与本地验收运行数据
+.runtime-deps/
+*.sqlite3
+*.sqlite3-shm
+*.sqlite3-wal
+.playwright/
+test-results/
+playwright-report/
+*.webm
+*.mp4

@@ -1,6 +1,6 @@
 <template>
   <el-container>
-    <el-aside :style="{ width: isCollapse ? 'fit-content' : '224px' }" class="tech-aside" :class="{ 'mobile-collapsed': isCollapse }">
+    <el-aside id="mobile-navigation" :style="{ width: isCollapse && !isMobile ? 'fit-content' : '224px' }" class="tech-aside" :class="{ 'mobile-collapsed': isMobile && isCollapse }">
       <div class="logo" @click="$router.push('/satellite/satellite_network')">
         <span class="logo-mark">
           <svg viewBox="0 0 24 24" fill="none" width="18" height="18">
@@ -17,7 +17,7 @@
           <span v-if="!isCollapse" class="logo-text">智能星簇协同运行验证系统</span>
         </transition>
       </div>
-      <el-menu router :collapse="isCollapse" :default-active="$route.path" active-text-color="#eafcff"
+      <el-menu router :collapse="isCollapse && !isMobile" :default-active="$route.path" @select="handleMenuSelect" active-text-color="#eafcff"
         background-color="transparent" text-color="rgba(160, 200, 235, 0.62)" :collapse-transition="true">
         <div v-if="isAdmin == 1">
           <el-menu-item index="/satellite/satellite_network"><el-icon><Monitor /></el-icon><span>卫星网络</span></el-menu-item>
@@ -45,10 +45,11 @@
         <span class="sys-dot"></span>SYSTEM ONLINE · V2.6
       </div>
     </el-aside>
+    <button v-if="isMobile && !isCollapse" class="mobile-nav-backdrop" aria-label="关闭导航" @click="closeMobileMenu"></button>
     <el-container>
       <el-header class="tech-header">
         <div class="header-left">
-          <div class="collapse-btn" @click="isCollapse = !isCollapse">
+          <div class="collapse-btn" role="button" tabindex="0" :aria-expanded="isMobile ? !isCollapse : undefined" aria-controls="mobile-navigation" :aria-label="isMobile && !isCollapse ? '关闭导航' : '打开导航'" @click="toggleSidebar" @keydown.enter.prevent="toggleSidebar" @keydown.space.prevent="toggleSidebar">
             <el-icon :size="18">
               <Expand v-if="isCollapse" />
               <Fold v-else />
@@ -60,8 +61,8 @@
           </div>
         </div>
         <div class="header-right">
-          <div class="header-status">
-            <span class="sys-dot"></span>LINK NORMAL
+          <div class="header-status" :class="healthClass" :title="healthTitle">
+            <span class="sys-dot"></span>{{ healthText }}
           </div>
           <el-dropdown style="cursor: pointer;height:100%;display: flex;">
             <div style="padding: 0 12px;display: flex;align-items: center;justify-content: center;">
@@ -90,7 +91,7 @@
     </el-container>
 
     <!-- 修改密码弹窗（技术说明书 3.7.5） -->
-    <el-dialog v-model="pwdDialogVisible" title="修改密码" width="420px" destroy-on-close>
+    <el-dialog v-model="pwdDialogVisible" title="修改密码" :width="isMobile ? '92%' : '420px'" destroy-on-close>
       <el-form :model="pwdForm" class="pwd-form">
         <el-form-item>
           <el-input v-model="pwdForm.username" placeholder="请输入新账号..." prefix-icon="User" />
@@ -123,6 +124,7 @@ import {
 // 自定义卫星图标（组件库无内置卫星图标，与整体线框风格保持一致）
 // 提取为独立 SFC：项目构建的 Vue 为 runtime-only 版本，template 字符串无法运行时编译
 import Satellite from '@/components/SatelliteIcon.vue';
+import { authFetch } from '@/utils/authFetch.js';
 
 export default {
   components: {
@@ -132,6 +134,8 @@ export default {
   data() {
     return {
       isCollapse: false,
+      isMobile: false,
+      health: { status: 'checking', database: false, occ: false, networkReady: false, clients: 0 },
       nickname: "",
       isAdmin: 0,
       pwdDialogVisible: false,
@@ -148,15 +152,97 @@ export default {
     // 头像取昵称首字符（无昵称时退化为默认字母）
     avatarInitial() {
       return (this.nickname || 'U').trim().charAt(0).toUpperCase() || 'U';
+    },
+    healthText() {
+      return {
+        ok: 'LINK NORMAL',
+        degraded: 'DEGRADED',
+        checking: 'CHECKING',
+        offline: 'OFFLINE'
+      }[this.health.status] || 'OFFLINE';
+    },
+    healthClass() {
+      return `health-${this.health.status}`;
+    },
+    healthTitle() {
+      return `数据库：${this.health.database ? '正常' : '异常'}；OCC：${this.health.occ ? '运行中' : '未就绪'}；客户端：${this.health.clients}`;
     }
   },
   created() {
     this.nickname = localStorage.getItem("nickname");
     this.isAdmin = localStorage.getItem("isAdmin");
-    // 移动端（窄屏）默认收起侧栏，点左上角按钮展开为浮层
-    if (typeof window !== 'undefined' && window.innerWidth <= 768) this.isCollapse = true;
+    this.isMobile = typeof window !== 'undefined' && window.innerWidth <= 768;
+    this.isCollapse = this.isMobile;
+  },
+  mounted() {
+    this.checkHealth();
+    this._healthTimer = setInterval(this.checkHealth, 10000);
+    window.addEventListener('resize', this.handleResize);
+    window.addEventListener('keydown', this.handleKeydown);
+  },
+  watch: {
+    '$route.path'() {
+      this.closeMobileMenu();
+    },
+    isMobile() {
+      this.isCollapse = this.isMobile;
+      this.updateBodyLock();
+    },
+    isCollapse() {
+      this.updateBodyLock();
+    }
+  },
+  beforeUnmount() {
+    if (this._healthTimer) clearInterval(this._healthTimer);
+    window.removeEventListener('resize', this.handleResize);
+    window.removeEventListener('keydown', this.handleKeydown);
+    if (this.isMobile && !this.isCollapse) {
+      this.isCollapse = true;
+      this.updateBodyLock();
+    }
   },
   methods: {
+    toggleSidebar() {
+      this.isCollapse = !this.isCollapse;
+    },
+    closeMobileMenu() {
+      if (this.isMobile) this.isCollapse = true;
+    },
+    handleMenuSelect() {
+      this.closeMobileMenu();
+    },
+    handleResize() {
+      const mobile = window.innerWidth <= 768;
+      if (mobile !== this.isMobile) this.isMobile = mobile;
+    },
+    handleKeydown(event) {
+      if (event.key === 'Escape' && this.isMobile && !this.isCollapse) this.closeMobileMenu();
+    },
+    updateBodyLock() {
+      if (this.isMobile && !this.isCollapse) {
+        if (this._previousBodyOverflow === undefined) this._previousBodyOverflow = document.body.style.overflow;
+        document.body.style.overflow = 'hidden';
+      } else if (this._previousBodyOverflow !== undefined) {
+        document.body.style.overflow = this._previousBodyOverflow;
+        this._previousBodyOverflow = undefined;
+      }
+    },
+    async checkHealth() {
+      try {
+        const response = await authFetch('/health', { timeout: 5000 });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const data = await response.json();
+        this.health = {
+          status: data.status || 'degraded',
+          database: !!data.database,
+          occ: !!data.occ,
+          networkReady: !!data.networkReady,
+          clients: Number(data.clients) || 0
+        };
+      } catch (err) {
+        this.health = { status: 'offline', database: false, occ: false, networkReady: false, clients: 0 };
+      }
+    },
     openPwdDialog() {
       // 用户名默认填入当前登录用户名，密码每次清空
       this.pwdForm.username = localStorage.getItem("userInfo") || this.nickname || "";
@@ -417,10 +503,12 @@ export default {
   border: 1px solid transparent;
   transition: all 0.2s;
 }
-.collapse-btn:hover {
+.collapse-btn:hover,
+.collapse-btn:focus-visible {
   color: #00f0ff;
   background: rgba(0, 220, 255, 0.1);
   border-color: rgba(0, 220, 255, 0.3);
+  outline: none;
 }
 
 .header-title {
@@ -466,6 +554,29 @@ export default {
   border-radius: 20px;
   background: rgba(82, 255, 168, 0.06);
 }
+.header-status.health-degraded,
+.header-status.health-checking {
+  color: #ffd657;
+  border-color: rgba(255, 214, 87, 0.3);
+  background: rgba(255, 214, 87, 0.06);
+}
+.header-status.health-degraded .sys-dot,
+.header-status.health-checking .sys-dot {
+  background: #ffd657;
+  box-shadow: 0 0 8px rgba(255, 214, 87, 0.8);
+}
+.header-status.health-offline {
+  color: #ff8b8b;
+  border-color: rgba(255, 107, 107, 0.35);
+  background: rgba(255, 107, 107, 0.06);
+}
+.header-status.health-offline .sys-dot {
+  background: #ff6b6b;
+  box-shadow: 0 0 8px rgba(255, 107, 107, 0.8);
+}
+.mobile-nav-backdrop {
+  display: none;
+}
 
 .el-main {
   background:
@@ -503,6 +614,27 @@ export default {
   }
   .el-aside.tech-aside.mobile-collapsed {
     transform: translateX(-100%);
+  }
+  .mobile-nav-backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 900;
+    border: 0;
+    background: rgba(1, 6, 16, 0.68);
+    backdrop-filter: blur(2px);
+    cursor: pointer;
+  }
+  .collapse-btn {
+    width: 44px;
+    height: 44px;
+  }
+  .header-page-name {
+    font-size: 14px;
+    letter-spacing: 1px;
+  }
+  .header-right :deep(.el-dropdown) {
+    max-width: 130px;
   }
   /* 窄屏隐藏顶栏次要信息，避免挤压 */
   .header-breadcrumb,

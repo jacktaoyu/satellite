@@ -6,7 +6,7 @@
         <div class="search-left">
           <el-input
             v-model="search.keyword"
-            placeholder="请输入任务名称搜索"
+            placeholder="任务名称 / 数字ID / 业务UUID"
             clearable
             style="width: 200px"
             @keyup.enter="handleSearch"
@@ -44,7 +44,7 @@
         </div>
         <div class="search-right">
           <el-button type="success" :icon="Plus" @click="showAddDialog">新增任务</el-button>
-          <el-button type="primary" plain :icon="Download" @click="exportAllTasks">导出当前列表</el-button>
+          <el-button type="primary" plain :icon="Download" :disabled="activeTab === 'gantt'" @click="exportAllTasks">导出当前列表</el-button>
           <el-button :icon="Refresh" circle title="刷新" @click="refreshList" :loading="loading" />
         </div>
       </div>
@@ -208,6 +208,7 @@
             </el-table-column>
             <el-table-column prop="startTime" label="开始时间" width="160" />
             <el-table-column prop="endTime" label="结束时间" width="160" />
+            <el-table-column prop="resultReceivedAt" label="结果接收时间" width="160" />
             <el-table-column label="操作" width="150" fixed="right">
               <template #default="scope">
                 <el-button link type="primary" :icon="View" @click="showOldDetail(scope.row)">详情</el-button>
@@ -229,7 +230,7 @@
       </el-tabs>
 
       <!-- 分页 -->
-      <div class="pagination-wrapper">
+      <div v-if="activeTab !== 'gantt'" class="pagination-wrapper">
         <el-pagination 
           background 
           @size-change="handleSizeChange" 
@@ -244,7 +245,7 @@
     </el-card>
 
     <!-- 新增/编辑任务弹窗 -->
-    <el-dialog v-model="addDialogVisible" :title="editingTaskId ? '编辑任务' : '新增任务'" width="600px" destroy-on-close @closed="handleDialogClosed">
+    <el-dialog v-model="addDialogVisible" class="task-dialog" :title="editingTaskId ? '编辑任务' : '新增任务'" width="600px" destroy-on-close @closed="handleDialogClosed">
       <el-form :model="taskForm" label-width="120px" :rules="taskRules" ref="taskFormRef">
         <el-form-item label="任务名称" prop="taskName">
           <el-input v-model="taskForm.taskName" placeholder="请输入任务名称" />
@@ -328,9 +329,10 @@
     </el-dialog>
 
     <!-- 任务详情弹窗 -->
-    <el-dialog v-model="detailVisible" title="任务详情" width="700px">
+    <el-dialog v-model="detailVisible" class="task-dialog" title="任务详情" width="700px">
       <el-descriptions :column="2" border v-if="currentTask">
         <el-descriptions-item label="任务ID">{{ currentTask.id }}</el-descriptions-item>
+        <el-descriptions-item label="业务UUID" :span="2">{{ currentTask.task_uuid || '-' }}</el-descriptions-item>
         <el-descriptions-item label="任务名称">{{ currentTask.task_name }}</el-descriptions-item>
         <el-descriptions-item label="任务类型">{{ currentTask.type }}</el-descriptions-item>
         <el-descriptions-item label="优先级">{{ currentTask.priority }}</el-descriptions-item>
@@ -346,6 +348,10 @@
         <el-descriptions-item label="开始时间">{{ currentTask.startTime }}</el-descriptions-item>
         <el-descriptions-item label="结束时间">{{ currentTask.endTime || '-' }}</el-descriptions-item>
         <el-descriptions-item label="云层厚度">{{ currentTask.cloudThickness || '-' }}</el-descriptions-item>
+        <el-descriptions-item v-if="currentTask.source === 'old'" label="结果接收时间" :span="2">{{ currentTask.resultReceivedAt || '-' }}</el-descriptions-item>
+        <el-descriptions-item v-if="currentTask.source === 'old'" label="客户端回传" :span="2">
+          <pre class="result-payload">{{ formatResultPayload(currentTask.resultPayload) }}</pre>
+        </el-descriptions-item>
         <el-descriptions-item label="备注" :span="2">{{ currentTask.comment || '无' }}</el-descriptions-item>
       </el-descriptions>
       <template #footer>
@@ -462,10 +468,16 @@ export default {
     // 弹窗打开时暂停避免干扰编辑；页面在后台标签时同样暂停，回前台立即补刷一次
     this._pollTimer = setInterval(() => {
       if (document.hidden) return;
-      if (!this.addDialogVisible && !this.detailVisible) this.getList();
+      if (!this.addDialogVisible && !this.detailVisible) {
+        this.doSearch();
+        this.getStats();
+      }
     }, 5000);
     this._onVisibility = () => {
-      if (!document.hidden && !this.addDialogVisible && !this.detailVisible) this.getList();
+      if (!document.hidden && !this.addDialogVisible && !this.detailVisible) {
+        this.doSearch();
+        this.getStats();
+      }
     };
     document.addEventListener('visibilitychange', this._onVisibility);
   },
@@ -479,6 +491,7 @@ export default {
     normalizeTask(task = {}, source = 'new') {
       return {
         id: task.id,
+        task_uuid: task.task_uuid || task.taskUuid || '',
         task_name: task.task_name || task.taskName || '',
         type: task.type || task.taskType || '',
         priority: task.priority ?? '',
@@ -499,25 +512,21 @@ export default {
         targetLocation: task.coordinates || task.targetLocation || '',
         cloudThickness: task.cloud_thickness ?? task.cloudThickness ?? '',
         comment: task.comment || '',
+        resultPayload: task.result_payload ?? task.resultPayload ?? '',
+        resultReceivedAt: task.result_received_at || task.resultReceivedAt || '',
         source,
       };
     },
-    // TODO: 后端 /tasks/getNewTasks、/tasks/getOldTasks 暂不支持关键字查询参数，
-    // 目前关键字为页内过滤，仅作用于当前页数据，与服务端分页存在矛盾；后端支持后应改为传参查询
-    applyKeywordFilter(items) {
-      if (!this.search.keyword) return items;
-      const keyword = this.search.keyword.trim().toLowerCase();
-      return items.filter((item) =>
-        [
-          item.task_name,
-          item.type,
-          item.sensorType,
-          item.assignedSatelliteName,
-          item.clusterName,
-          item.status,
-          item.targetLocation,
-        ].some((field) => String(field || '').toLowerCase().includes(keyword))
-      );
+    buildQueryParams() {
+      const params = {
+        page: this.search.pageNum,
+        page_size: this.search.pageSize
+      };
+      if (this.search.keyword.trim()) params.search = this.search.keyword.trim();
+      if (this.search.taskType) params.type = [this.search.taskType];
+      if (this.search.sensorType) params.payload = [this.search.sensorType];
+      if (this.search.status) params.status = [this.search.status];
+      return params;
     },
     resetTaskForm() {
       this.taskForm = {
@@ -540,23 +549,17 @@ export default {
     async getList() {
       this.loading = true;
       try {
-        const params = {
-          page: this.search.pageNum,
-          page_size: this.search.pageSize
-        };
-        if (this.search.taskType) params.type = [this.search.taskType];
-        if (this.search.sensorType) params.payload = [this.search.sensorType];
-        if (this.search.status) params.status = [this.search.status];
+        const params = this.buildQueryParams();
         const res = await this.$request.post('/tasks/getNewTasks', params);
         const responseData = res.data.data || res.data;
         if (responseData) {
           const items = (responseData.items || responseData || []).map((item) => this.normalizeTask(item, 'new'));
-          const filteredItems = this.applyKeywordFilter(items);
-          this.tableData = filteredItems.map(item => ({
+          this.tableData = items.map(item => ({
             ...item,
-            isRunning: item.status === '执行中' || item.status === '运行中'
+            isRunning: item.status === '执行中' || item.status === '运行中' || item.status === '正在执行'
           }));
-          this.totalNum = this.search.keyword ? filteredItems.length : (responseData.total || filteredItems.length || 0);
+          this.totalNum = responseData.total ?? items.length;
+          if (responseData.current_page) this.search.pageNum = responseData.current_page;
         }
       } catch (err) {
         console.error('获取任务列表失败:', err);
@@ -577,20 +580,14 @@ export default {
     async getOldTasks() {
       this.loading = true;
       try {
-        const params = {
-          page: this.search.pageNum,
-          page_size: this.search.pageSize
-        };
-        if (this.search.taskType) params.type = [this.search.taskType];
-        if (this.search.sensorType) params.payload = [this.search.sensorType];
-        if (this.search.status) params.status = [this.search.status];
+        const params = this.buildQueryParams();
         const res = await this.$request.post('/tasks/getOldTasks', params);
         const responseData = res.data.data || res.data;
         if (responseData) {
           const items = (responseData.items || responseData || []).map((item) => this.normalizeTask(item, 'old'));
-          const filteredItems = this.applyKeywordFilter(items);
-          this.oldTaskData = filteredItems;
-          this.totalNum = this.search.keyword ? filteredItems.length : (responseData.total || filteredItems.length || 0);
+          this.oldTaskData = items;
+          this.totalNum = responseData.total ?? items.length;
+          if (responseData.current_page) this.search.pageNum = responseData.current_page;
         }
       } catch (err) {
         console.error('获取历史任务失败:', err);
@@ -606,14 +603,14 @@ export default {
     // 获取统计数据
     async getStats() {
       try {
-        const res = await this.$request.get('/tasks/getNewTasksByCondition');
-        const tasks = (res.data.data || res.data || []).map((task) => this.normalizeTask(task, 'new'));
-        if (Array.isArray(tasks)) {
-          this.stats.total = tasks.length;
-          this.stats.waiting = tasks.filter(t => t.status === '等待执行' || t.status === '等待规划').length;
-          this.stats.running = tasks.filter(t => t.status === '执行中' || t.status === '运行中' || t.status === '正在执行').length;
-          this.stats.completed = tasks.filter(t => t.status === '已完成' || t.status === '失败' || t.status === 'Success' || t.status === 'Failed').length;
-        }
+        const res = await this.$request.get('/tasks/getTaskStats');
+        const data = res.data.data || res.data || {};
+        this.stats = {
+          total: data.total || 0,
+          waiting: data.waiting || 0,
+          running: data.running || 0,
+          completed: data.completed || 0
+        };
       } catch (err) {
         console.error('获取统计数据失败:', err);
       }
@@ -740,10 +737,6 @@ export default {
     handleSearch(e) {
       if (e) e.preventDefault();
       this.search.pageNum = 1;
-      // 后端不支持关键字参数，关键字仅过滤当前页，明确提示用户
-      if (this.search.keyword && this.search.keyword.trim()) {
-        ElMessage.info('关键字搜索仅过滤当前页数据');
-      }
       this.doSearch();
     },
 
@@ -751,6 +744,8 @@ export default {
     doSearch() {
       if (this.activeTab === 'new') {
         this.getList();
+      } else if (this.activeTab === 'gantt') {
+        this.loadGantt();
       } else {
         this.getOldTasks();
       }
@@ -1163,6 +1158,16 @@ export default {
       this.detailVisible = true;
     },
 
+    formatResultPayload(payload) {
+      if (!payload) return '暂无回传数据';
+      if (typeof payload !== 'string') return JSON.stringify(payload, null, 2);
+      try {
+        return JSON.stringify(JSON.parse(payload), null, 2);
+      } catch (err) {
+        return payload;
+      }
+    },
+
     // 导出任务
     async exportTask(row) {
       try {
@@ -1225,6 +1230,7 @@ export default {
         '等待执行': 'info',
         '执行中': 'primary',
         '运行中': 'primary',
+        '正在执行': 'primary',
         '暂停': 'warning',
         '已完成': 'success',
         '失败': 'danger',
@@ -1361,6 +1367,16 @@ export default {
   margin-top: 16px;
 }
 
+.result-payload {
+  margin: 0;
+  max-height: 180px;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font: 12px/1.6 'Courier New', monospace;
+  color: #cfe8ff;
+}
+
 /* 响应式 */
 @media (max-width: 768px) {
   .search-bar {
@@ -1379,6 +1395,30 @@ export default {
   .search-left .el-button {
     width: 100%;
     margin: 0;
+  }
+  .search-right {
+    flex-direction: row;
+    flex-wrap: wrap;
+  }
+  .search-right .el-button {
+    min-height: 40px;
+    margin: 0;
+  }
+  .pagination-wrapper {
+    justify-content: flex-start;
+    overflow-x: auto;
+  }
+  .gantt-chart {
+    height: 360px;
+  }
+  :deep(.task-dialog) {
+    width: 94% !important;
+    max-height: 88vh;
+    margin-top: 6vh;
+    overflow-y: auto;
+  }
+  :deep(.task-dialog .el-descriptions__cell) {
+    overflow-wrap: anywhere;
   }
 }
 

@@ -8,11 +8,13 @@ HOST = os.environ.get("DB_HOST", "localhost")  # 数据库服务器地址
 PORT = os.environ.get("DB_PORT", "3306")  # 数据库连接端口号
 DATABASE = os.environ.get("DB_NAME", "satellite")  # 要访问的数据库名称
 
-# 构建数据库连接URI
-if PASSWORD:
-    DB_URI = f'mysql+pymysql://{USERNAME}:{PASSWORD}@{HOST}:{PORT}/{DATABASE}?charset=utf8'
-else:
-    DB_URI = f'mysql+pymysql://{USERNAME}@{HOST}:{PORT}/{DATABASE}?charset=utf8'
+# 完整 DATABASE_URL 优先；未提供时保持原有 MySQL 环境变量组合。
+DB_URI = os.environ.get("DATABASE_URL")
+if not DB_URI:
+    if PASSWORD:
+        DB_URI = f'mysql+pymysql://{USERNAME}:{PASSWORD}@{HOST}:{PORT}/{DATABASE}?charset=utf8'
+    else:
+        DB_URI = f'mysql+pymysql://{USERNAME}@{HOST}:{PORT}/{DATABASE}?charset=utf8'
 
 # SQLALCHEMY_DATABASE_URI配置项，设置数据库的连接URI，让SQLAlchemy知道如何连接数据库
 SQLALCHEMY_DATABASE_URI = DB_URI

@@ -1,0 +1,20 @@
+/* 尊重系统减少动态效果设置，保留状态信息与全部交互。 */
+@media (prefers-reduced-motion: reduce) {
+  html:focus-within {
+    scroll-behavior: auto;
+  }
+
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+  }
+
+  .event-track {
+    animation: none !important;
+    white-space: normal;
+  }
+}

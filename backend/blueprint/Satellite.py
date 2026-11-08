@@ -68,6 +68,7 @@ def get_satellite_by_id(id):
         "turns": satellite.orbit_number,
         "storage": round(satellite.storage, 2),
         "battery": round(satellite.battery, 2),
+        "maxBattery": round(satellite.battery_capacity, 2),
         "resolution": satellite.resolution_capability,
         "width": satellite.width_of_cloth,
         "sideAngle": round(satellite.side_swing_angle, 2),
@@ -112,6 +113,7 @@ def get_satellite_by_name(name):
         "speed": str([round(float(x), 2) for x in satellite.speed]) if satellite.speed is not None else "",
         "storage": round(satellite.storage, 2),
         "battery": round(satellite.battery, 2),
+        "maxBattery": round(satellite.battery_capacity, 2),
         "resolution": satellite.resolution_capability,
         "width": satellite.width_of_cloth,
         "sideAngle": round(satellite.side_swing_angle, 2),
@@ -157,6 +159,7 @@ def get_all_satellites():
                 "name": satellite.sat_name,
                 "storage": round(satellite.storage, 2),
                 "battery": round(satellite.battery, 2),
+                "maxBattery": round(satellite.battery_capacity, 2),
                 "resolution": satellite.resolution_capability,
                 "orbit": satellite.alias,  # 卫星别名
                 "loadType": satellite.star_payload,
@@ -170,6 +173,7 @@ def get_all_satellites():
                 "name": satellite.sat_name,
                 "storage": round(satellite.storage, 2),
                 "battery": round(satellite.battery, 2),
+                "maxBattery": round(satellite.battery_capacity, 2),
                 "resolution": satellite.resolution_capability,
                 "orbit": satellite.alias,  # 卫星别名
                 "loadType": satellite.star_payload,

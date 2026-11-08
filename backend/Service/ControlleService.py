@@ -1,4 +1,5 @@
 import os
+import ast
 import random
 import time
 import math
@@ -343,7 +344,7 @@ class OperationsControlCenter:
         is_emergency = True if data['is_urgent'].strip() == "是" else False
         priority = 6 if is_emergency else priority
         task_type = data['type'].strip() if data['type'] else ""
-        task_name = task_type + str(uuid.uuid4())[:6]
+        task_name = str(data.get('task_name') or '').strip() or task_type + str(uuid.uuid4())[:6]
         sensor_type = data['payload'].strip() if data['payload'] else None
         resolution = float(data['resolution']) if data['resolution'] else None
         start_time = data['timeRanges'][0].strip().split(',')[0] if data['timeRanges'][0] else None
@@ -627,6 +628,7 @@ class OperationsControlCenter:
 
             task_model = NewTaskModel(
                 id=task.task_id,
+                task_uuid=task.task_uuid,
                 priority=task.priority,
                 task_name=task_name,
                 is_emergency=task.is_emergency,
@@ -678,7 +680,7 @@ class OperationsControlCenter:
         with self.app.app_context():
             new_task = NewTaskModel.query.filter_by(id=task_id).first()
             if new_task:
-                old_task = OldTaskModel(id=new_task.id, priority=new_task.priority,
+                old_task = OldTaskModel(id=new_task.id, task_uuid=new_task.task_uuid, priority=new_task.priority,
                                         task_name=new_task.task_name,
                                         is_emergency=new_task.is_emergency,
                                         task_type=new_task.task_type, sensor_type=new_task.sensor_type,
@@ -845,7 +847,7 @@ class OperationsControlCenter:
         with self.app.app_context():
             new_task = NewTaskModel.query.filter_by(id=task_id).first()
             if new_task:
-                old_task = OldTaskModel(id=new_task.id, priority=new_task.priority,
+                old_task = OldTaskModel(id=new_task.id, task_uuid=new_task.task_uuid, priority=new_task.priority,
                                         task_name=new_task.task_name,
                                         is_emergency=new_task.is_emergency,
                                         task_type=new_task.task_type, sensor_type=new_task.sensor_type,
@@ -1226,6 +1228,8 @@ class OperationsControlCenter:
                                         newtask_model.end_time = task.latest_end_time
                                         newtask_model.assigned_satellite_name = task.assigned_satellite
                                         newtask_model.comment = f"{task.assigned_satellite}|{task.earliest_start_time}|{task.latest_end_time}"
+                                        newtask_model.battery_after = str(task.battery_after_task)
+                                        newtask_model.storge_after = str(task.current_storage)
                                         db.session.commit()
                                         new_tasks.append(task)
                                 tasks.remove(task)
@@ -1289,6 +1293,7 @@ class OperationsControlCenter:
                         print("失败的任务名字：", newtask_model.task_name, newtask_model.assigned_satellite_name)
                         oldtask_model = OldTaskModel(
                             id=newtask_model.id,
+                            task_uuid=newtask_model.task_uuid,
                             task_name=newtask_model.task_name,
                             priority=newtask_model.priority,
                             is_emergency=newtask_model.is_emergency,
@@ -1594,6 +1599,119 @@ class OperationsControlCenter:
         cluster_params_path = os.path.join(library_dir, cluster_parms)
         return os.path.exists(cluster_params_path)
 
+    def _task_from_model(self, task_model):
+        try:
+            target_location = ast.literal_eval(task_model.target_location)
+        except (ValueError, SyntaxError, TypeError):
+            target_location = task_model.target_location
+        start_time = (task_model.start_time or self.start_time).replace(tzinfo=timezone.utc)
+        end_time = (task_model.end_time or self.end_time).replace(tzinfo=timezone.utc)
+        task = Task(
+            task_id=task_model.id,
+            task_uuid=task_model.task_uuid,
+            task_name=task_model.task_name,
+            priority=task_model.priority,
+            is_emergency=task_model.is_emergency,
+            task_type=task_model.task_type,
+            sensor_type=task_model.sensor_type,
+            resolution=task_model.resolution,
+            earliest_start_time=start_time,
+            latest_end_time=end_time,
+            appointment_time=task_model.appoint_time,
+            target_location=target_location,
+            cluster_name=task_model.cluster_name,
+            cloud_thickness=task_model.cloud_thickness or 0
+        )
+        task.status = '等待执行' if task_model.status == '正在执行' else task_model.status
+        task.comment = task_model.comment
+        task.assigned_satellite = task_model.assigned_satellite_name
+        return task
+
+    def _restore_planned_task(self, task_model):
+        """从既有数据库记录重建已规划任务，不清空或覆盖历史数据。"""
+        task = self._task_from_model(task_model)
+        is_parent = task.task_type in ['区域目标', '广域目标', '周期观测', '陆地区域目标案例', '海洋搜救案例']
+        schedule_items = (task.comment or '').split(',') if task.comment else []
+        if is_parent and schedule_items:
+            self.satellite_network.net_tasks_buffer[task.task_id] = task
+            for index, item in enumerate(schedule_items, 1):
+                parts = item.split('|')
+                if len(parts) != 3:
+                    continue
+                subtask_id = task.task_id * 10000 + index
+                start_time = datetime.fromisoformat(parts[1]).replace(tzinfo=timezone.utc)
+                end_time = datetime.fromisoformat(parts[2]).replace(tzinfo=timezone.utc)
+                subtask = Task(
+                    task_id=subtask_id,
+                    task_uuid=str(uuid.uuid5(uuid.UUID(task.task_uuid), str(subtask_id))),
+                    task_name=task.task_name,
+                    priority=task.priority,
+                    is_emergency=task.is_emergency,
+                    task_type='点目标',
+                    sensor_type=task.sensor_type,
+                    resolution=task.resolution,
+                    earliest_start_time=start_time,
+                    latest_end_time=end_time,
+                    target_location=task.target_location,
+                    cluster_name=task.cluster_name,
+                    parent_task_id=task.task_id,
+                    cloud_thickness=task.cloud_thickness
+                )
+                subtask.status = task.status
+                subtask.assigned_satellite = parts[0]
+                subtask.execution_time = max(1.0, (end_time - start_time).total_seconds())
+                subtask.target_attitude = (0, 0, 0)
+                subtask.battery_after_task = self.satellite_network.satellites[parts[0]].battery
+                subtask.current_storage = 0
+                task.subtasks.append(subtask)
+                task.subtask_ids.append(subtask_id)
+                target_queue = (self.satellite_network.pause_tasks if task.status == '暂停'
+                                else self.satellite_network.new_tasks)
+                target_queue.append(subtask)
+            return
+
+        if task.assigned_satellite not in self.satellite_network.satellites:
+            task.status = '等待规划'
+            self.task_queue.put([task])
+            return
+        task.execution_time = max(1.0, (task.latest_end_time - task.earliest_start_time).total_seconds())
+        task.target_attitude = (0, 0, 0)
+        satellite = self.satellite_network.satellites[task.assigned_satellite]
+        try:
+            task.battery_after_task = float(task_model.battery_after)
+        except (TypeError, ValueError):
+            task.battery_after_task = satellite.battery
+        try:
+            task.current_storage = float(task_model.storge_after)
+        except (TypeError, ValueError):
+            task.current_storage = 0
+        if task.status == '暂停':
+            self.satellite_network.pause_tasks.append(task)
+        else:
+            task.status = '等待执行'
+            self.satellite_network.new_tasks.append(task)
+
+    def restore_tasks(self):
+        """恢复预约、待规划、暂停和待执行任务；执行中记录安全回退为待执行。"""
+        with self.app.app_context():
+            task_models = NewTaskModel.query.all()
+            for task_model in task_models:
+                if task_model.status == '正在执行':
+                    task_model.status = '等待执行'
+            db.session.commit()
+            for task_model in task_models:
+                if any(task.task_id == task_model.id for task in self.appointment_tasks):
+                    continue
+                if task_model.status in ('等待执行', '正在执行', '暂停') and task_model.assigned_satellite_name:
+                    self._restore_planned_task(task_model)
+                else:
+                    task = self._task_from_model(task_model)
+                    if task.appointment_time:
+                        self.appointment_tasks.append(task)
+                    else:
+                        self.task_queue.put([task])
+            print(f"已从数据库恢复 {len(task_models)} 个未归档任务")
+
     def run(self):
         """
         运控中心线程运行函数
@@ -1640,6 +1758,7 @@ class OperationsControlCenter:
             for sat_name, sat in self.satellite_network.satellites.items():
                 sat.sat_trace_window(self.start_time)
             print("初始化所有卫星的轨迹完成")
+            self.restore_tasks()
             # imageloader = ImageLoader(r"C:\Users\ZhuanZ\Desktop\system_design\RSICD_images")
             network_thread = Thread(target=self.satellite_network.run)
             network_thread.daemon = True
